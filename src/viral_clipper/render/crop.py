@@ -32,17 +32,35 @@ class CropPlan:
     keyframes: list[tuple[float, int]]  # (t_rel, offset) at 1 Hz plus cut jumps
 
     def expression(self) -> str:
-        """Piecewise-linear FFmpeg expression in `t` for the tracked axis."""
-        if len(self.keyframes) == 1:
-            return str(self.keyframes[0][1])
-        parts: list[str] = []
-        for (t0, v0), (t1, v1) in zip(self.keyframes, self.keyframes[1:], strict=False):
-            if t1 - t0 <= 1e-3:
+        """Piecewise-linear FFmpeg expression in `t` for the tracked axis.
+
+        Written as a balanced tree of `gte(t,a)*lt(t,b)*lerp` terms rather than nested if()s: FFmpeg's
+        expression parser caps nesting at 100 levels (nested ifs *and* long '+' chains both hit it), and a
+        fast-cut clip easily has more keyframes than that.
+        """
+        kfs = [kf for kf in self.keyframes if kf[0] >= 0]
+        if len(kfs) <= 1:
+            return str(kfs[0][1] if kfs else 0)
+        terms: list[str] = []
+        for (t0, v0), (t1, v1) in zip(kfs, kfs[1:], strict=False):
+            dt = t1 - t0
+            if dt <= 1e-4:
                 continue
-            # lerp between consecutive keyframes
-            parts.append(f"if(lt(t,{t1:.3f}),{v0}+({v1}-{v0})*(t-{t0:.3f})/{t1 - t0:.3f},")
-        expr = "".join(parts) + str(self.keyframes[-1][1]) + ")" * len(parts)
-        return expr
+            if v0 == v1:
+                terms.append(f"gte(t,{t0:.3f})*lt(t,{t1:.3f})*{v0}")
+            else:
+                terms.append(f"gte(t,{t0:.3f})*lt(t,{t1:.3f})*({v0}+({v1}-{v0})*(t-{t0:.3f})/{dt:.3f})")
+        t_last, v_last = kfs[-1]
+        terms.append(f"gte(t,{t_last:.3f})*{v_last}")
+        if kfs[0][0] > 0:
+            terms.append(f"lt(t,{kfs[0][0]:.3f})*{kfs[0][1]}")
+        # The parser also chokes on ~100 chained '+' terms, so add them as a balanced tree (depth log2 n).
+        while len(terms) > 1:
+            terms = [
+                f"({terms[i]}+{terms[i + 1]})" if i + 1 < len(terms) else terms[i] for i in range(0, len(terms), 2)
+            ]
+        # FFmpeg configures the filter with t = NaN; 0*NaN is NaN, so answer with a constant there.
+        return f"if(isnan(t),{kfs[0][1]},{terms[0]})"
 
     def static_offset(self) -> int:
         return self.keyframes[0][1]
@@ -52,6 +70,7 @@ def _iter_bgr_frames(video_path: str | Path, start: float, duration: float, widt
     cmd = [
         ffmpeg_path(),
         "-hide_banner",
+        "-nostdin",
         "-loglevel",
         "error",
         "-ss",
@@ -68,7 +87,7 @@ def _iter_bgr_frames(video_path: str | Path, start: float, duration: float, widt
         "bgr24",
         "-",
     ]
-    proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+    proc = subprocess.Popen(cmd, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
     assert proc.stdout is not None
     nbytes = width * height * 3
     try:

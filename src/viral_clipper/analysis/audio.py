@@ -30,6 +30,7 @@ def extract_wav(video_path: str | Path, wav_path: Path) -> Path:
     cmd = [
         ffmpeg_path(),
         "-hide_banner",
+        "-nostdin",
         "-loglevel",
         "error",
         "-y",
@@ -44,7 +45,7 @@ def extract_wav(video_path: str | Path, wav_path: Path) -> Path:
         "pcm_s16le",
         str(wav_path),
     ]
-    result = subprocess.run(cmd, capture_output=True, text=True)
+    result = subprocess.run(cmd, capture_output=True, text=True, stdin=subprocess.DEVNULL)
     if result.returncode != 0:
         raise AnalysisError(f"Audio extraction failed: {result.stderr.strip()[:300]}")
     return wav_path

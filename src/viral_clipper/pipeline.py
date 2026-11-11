@@ -9,7 +9,7 @@ from pathlib import Path
 
 from viral_clipper.analysis.analyze import analyze, cache_path
 from viral_clipper.config import Config, load_profile
-from viral_clipper.errors import NoClipsError
+from viral_clipper.errors import ClipperError, NoClipsError, RenderError
 from viral_clipper.ingest.ffprobe import ensure_ffmpeg
 from viral_clipper.ingest.source import resolve_source
 from viral_clipper.metadata import llm as llm_mod
@@ -188,15 +188,22 @@ def run_clip_video(req: ClipRequest, cfg: Config, progress: ProgressFn | None = 
 
         t0 = time.perf_counter()
         sub = stages.sub("render")
-        rendered = render_clip(
-            result,
-            cand,
-            i,
-            hook,
-            work_dir,
-            cfg,
-            progress=lambda f, m, i=i, sub=sub: sub((i - 1 + f) / len(selected), m),
-        )
+        try:
+            rendered = render_clip(
+                result,
+                cand,
+                i,
+                hook,
+                work_dir,
+                cfg,
+                progress=lambda f, m, i=i, sub=sub: sub((i - 1 + f) / len(selected), m),
+            )
+        except ClipperError as exc:
+            # One bad clip must not throw away the other nine; report it and keep going.
+            log.error("clip %02d (%.1f-%.1f s) failed: %s", i, cand.start, cand.end, exc)
+            warnings.append(f"clip_{i:02d} ({cand.start:.0f}-{cand.end:.0f}s) failed to render: {exc}")
+            t_render += time.perf_counter() - t0
+            continue
         t_render += time.perf_counter() - t0
         clips.append(
             ClipRecord(
@@ -220,6 +227,8 @@ def run_clip_video(req: ClipRequest, cfg: Config, progress: ProgressFn | None = 
         )
     timings["render"] = t_render
     timings["metadata"] = t_meta
+    if not clips:
+        raise RenderError(f"Every clip failed to render for {video.title!r}; see the warnings and the log.")
     stages.report("metadata", 1.0, "Metadata ready" + (" (Claude)" if use_llm else " (templates)"))
 
     out = ClipVideoResult(

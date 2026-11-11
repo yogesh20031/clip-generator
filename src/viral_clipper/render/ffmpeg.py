@@ -6,6 +6,7 @@ import json
 import logging
 import re
 import subprocess
+import threading
 from pathlib import Path
 
 from viral_clipper.config import ClipConfig
@@ -21,10 +22,25 @@ _JSON_RE = re.compile(r"\{[^{}]*\"input_i\"[^{}]*\}", re.DOTALL)
 
 def run_ffmpeg(args: list[str], duration: float, progress: ProgressFn | None = None, what: str = "ffmpeg") -> None:
     """Run ffmpeg with machine-readable progress on stdout; raise RenderError with stderr on failure."""
-    cmd = [ffmpeg_path(), "-hide_banner", "-loglevel", "error", "-y", "-nostats", "-progress", "pipe:1", *args]
+    cmd = [
+        ffmpeg_path(),
+        "-hide_banner",
+        "-nostdin",
+        "-loglevel",
+        "error",
+        "-y",
+        "-nostats",
+        "-progress",
+        "pipe:1",
+        *args,
+    ]
     log.debug("%s: %s", what, " ".join(cmd))
-    proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-    assert proc.stdout is not None
+    proc = subprocess.Popen(cmd, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    assert proc.stdout is not None and proc.stderr is not None
+    # Drain stderr on a thread: if ffmpeg fills that pipe while we wait on stdout, both sides hang.
+    stderr_chunks: list[str] = []
+    drain = threading.Thread(target=lambda: stderr_chunks.append(proc.stderr.read()), daemon=True)  # type: ignore[union-attr]
+    drain.start()
     last = -1.0
     for line in proc.stdout:
         m = _TIME_RE.search(line)
@@ -34,8 +50,9 @@ def run_ffmpeg(args: list[str], duration: float, progress: ProgressFn | None = N
             if frac - last >= 0.02:
                 last = frac
                 progress(frac, f"{what} {frac * 100:.0f}%")
-    stderr = proc.stderr.read() if proc.stderr else ""
     code = proc.wait()
+    drain.join(timeout=5)
+    stderr = "".join(stderr_chunks)
     if code != 0:
         log.error("%s failed (%s):\n%s\nstderr:\n%s", what, code, " ".join(cmd), stderr)
         raise RenderError(
@@ -48,6 +65,7 @@ def measure_loudness(src: Path, start: float, end: float, clip_cfg: ClipConfig) 
     cmd = [
         ffmpeg_path(),
         "-hide_banner",
+        "-nostdin",
         "-nostats",
         "-y",
         "-ss",
@@ -63,7 +81,7 @@ def measure_loudness(src: Path, start: float, end: float, clip_cfg: ClipConfig) 
         "null",
         "-",
     ]
-    result = subprocess.run(cmd, capture_output=True, text=True)
+    result = subprocess.run(cmd, capture_output=True, text=True, stdin=subprocess.DEVNULL)
     match = _JSON_RE.findall(result.stderr)
     if result.returncode != 0 or not match:
         log.warning("loudnorm measurement failed; falling back to single-pass: %s", result.stderr.strip()[-200:])
@@ -90,6 +108,7 @@ def write_thumbnail(clip_path: Path, at: float, dest: Path) -> Path:
     cmd = [
         ffmpeg_path(),
         "-hide_banner",
+        "-nostdin",
         "-loglevel",
         "error",
         "-y",
@@ -103,11 +122,11 @@ def write_thumbnail(clip_path: Path, at: float, dest: Path) -> Path:
         "3",
         str(dest),
     ]
-    result = subprocess.run(cmd, capture_output=True, text=True)
+    result = subprocess.run(cmd, capture_output=True, text=True, stdin=subprocess.DEVNULL)
     if result.returncode != 0 or not dest.exists():
         # The peak may sit past the last decodable frame; grab the first frame instead.
         cmd[cmd.index("-ss") + 1] = "0"
-        subprocess.run(cmd, capture_output=True, text=True)
+        subprocess.run(cmd, capture_output=True, text=True, stdin=subprocess.DEVNULL)
     return dest
 
 
@@ -116,6 +135,7 @@ def measure_integrated_loudness(path: Path) -> float | None:
     cmd = [
         ffmpeg_path(),
         "-hide_banner",
+        "-nostdin",
         "-nostats",
         "-i",
         str(path),
@@ -125,6 +145,6 @@ def measure_integrated_loudness(path: Path) -> float | None:
         "null",
         "-",
     ]
-    result = subprocess.run(cmd, capture_output=True, text=True)
+    result = subprocess.run(cmd, capture_output=True, text=True, stdin=subprocess.DEVNULL)
     m = re.search(r"I:\s*(-?[\d.]+)\s*LUFS", result.stderr)
     return float(m.group(1)) if m else None

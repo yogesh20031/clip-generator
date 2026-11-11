@@ -22,12 +22,45 @@ def test_group_lines_breaks_on_count_pause_and_punctuation() -> None:
     assert [ln.text for ln in lines] == ["one two three", "four five six.", "later"]
 
 
-def test_crop_expression_is_piecewise_linear() -> None:
+def test_crop_expression_is_piecewise_linear_and_flat() -> None:
     plan = CropPlan(crop_w=608, crop_h=1080, axis="x", keyframes=[(0.0, 100), (1.0, 200), (2.0, 200)])
     expr = plan.expression()
-    assert expr.startswith("if(lt(t,1.000),100+(200-100)*(t-0.000)/1.000,")
-    assert expr.count("if(") == 2 and expr.endswith("200))")
+    assert "gte(t,0.000)*lt(t,1.000)*(100+(200-100)*(t-0.000)/1.000)" in expr
+    assert "gte(t,1.000)*lt(t,2.000)*200" in expr and "gte(t,2.000)*200" in expr
+    assert expr.startswith("if(isnan(t),100,"), "FFmpeg evaluates with t=NaN while configuring the filter"
+    assert expr.count("if(") == 1, "nested ifs hit FFmpeg's 100-level parser limit on fast-cut clips"
     assert CropPlan(608, 1080, "x", [(0.0, 42)]).expression() == "42"
+
+
+def test_crop_expression_with_hundreds_of_keyframes_runs_in_ffmpeg(tmp_path: Path) -> None:
+    import subprocess
+
+    from viral_clipper.ingest.ffprobe import ffmpeg_path
+
+    keyframes = [(k * 0.01, (k * 7) % 300) for k in range(250)]  # 250 keyframes inside 2.5 s
+    plan = CropPlan(crop_w=340, crop_h=360, axis="x", keyframes=keyframes)
+    out = tmp_path / "crop.mp4"
+    cmd = [
+        ffmpeg_path(),
+        "-hide_banner",
+        "-loglevel",
+        "error",
+        "-y",
+        "-f",
+        "lavfi",
+        "-i",
+        "testsrc=size=640x360:rate=30:duration=1",
+        "-vf",
+        f"crop={plan.crop_w}:{plan.crop_h}:x='{plan.expression()}':y=0",
+        "-c:v",
+        "libx264",
+        "-preset",
+        "ultrafast",
+        str(out),
+    ]
+    result = subprocess.run(cmd, capture_output=True, text=True)
+    assert result.returncode == 0, result.stderr
+    assert out.stat().st_size > 0
 
 
 def test_render_clip_produces_vertical_captioned_normalized_mp4(

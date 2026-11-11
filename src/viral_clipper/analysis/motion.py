@@ -24,7 +24,7 @@ _W, _H = 160, 90
 
 
 def iter_gray_frames(video_path: str | Path, fps: float, start: float | None = None, duration: float | None = None):
-    cmd = [ffmpeg_path(), "-hide_banner", "-loglevel", "error"]
+    cmd = [ffmpeg_path(), "-hide_banner", "-nostdin", "-loglevel", "error"]
     if start is not None:
         cmd += ["-ss", f"{start:.3f}"]
     cmd += ["-i", str(video_path)]
@@ -39,7 +39,7 @@ def iter_gray_frames(video_path: str | Path, fps: float, start: float | None = N
         "gray",
         "-",
     ]
-    proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    proc = subprocess.Popen(cmd, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     assert proc.stdout is not None
     frame_bytes = _W * _H
     try:
