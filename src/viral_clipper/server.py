@@ -83,8 +83,8 @@ async def clip_video(
     source: str,
     niche: str = "generic",
     num_clips: int = 10,
-    min_len: int = 15,
-    max_len: int = 60,
+    min_len: int = 30,
+    max_len: int = 70,
     platforms: list[str] | None = None,
     output_dir: str | None = None,
     ctx: Context = None,  # type: ignore[assignment]
@@ -92,8 +92,9 @@ async def clip_video(
     """Find the most viral-worthy moments in a video and cut them into captioned 9:16 clips.
 
     source: a YouTube URL or a local mp4/mov/mkv path. niche: gta6 | mrbeast | generic (a profile in
-    profiles/). Produces clip_NN.mp4 files (1080x1920, word-by-word captions, hook overlay, -14 LUFS),
-    thumbnails, clips.json and clips.csv with score, timestamps, title, hashtags, description and hook
+    profiles/). Clips run 30-70 s by default and are saved next to the source video in
+    <output_dir>/<video-title>/ as clip_NN.mp4 (1080x1920, word-by-word captions, hook overlay, -14 LUFS)
+    plus thumbnails, clips.json and clips.csv with score, timestamps, title, hashtags, description and hook
     for each platform. Long videos take minutes: transcription dominates.
     """
     if niche not in list_profiles():
@@ -124,8 +125,8 @@ async def score_moments(
     source: str,
     niche: str = "generic",
     num_clips: int = 10,
-    min_len: int = 15,
-    max_len: int = 60,
+    min_len: int = 30,
+    max_len: int = 70,
     ctx: Context = None,  # type: ignore[assignment]
 ) -> list[Candidate]:
     """Rank candidate moments for a niche without rendering anything. Each candidate has start/end,

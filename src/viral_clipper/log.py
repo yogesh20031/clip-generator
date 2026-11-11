@@ -18,9 +18,11 @@ def setup_logging(log_dir: Path, level: str = "INFO") -> None:
     root.setLevel(level.upper())
     fmt = logging.Formatter("%(asctime)s %(levelname)-7s %(name)s: %(message)s", "%H:%M:%S")
 
-    stderr = logging.StreamHandler(sys.stderr)
-    stderr.setFormatter(fmt)
-    root.addHandler(stderr)
+    # MCPServer() already installs a stderr handler via basicConfig; only add ours when nothing is there.
+    if not root.handlers:
+        stderr = logging.StreamHandler(sys.stderr)
+        stderr.setFormatter(fmt)
+        root.addHandler(stderr)
 
     try:
         log_dir.mkdir(parents=True, exist_ok=True)

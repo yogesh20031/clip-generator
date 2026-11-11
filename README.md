@@ -60,7 +60,7 @@ Check with `claude mcp list`, then in a Claude Code session:
 
 | Tool | Purpose |
 |---|---|
-| `clip_video(source, niche="generic", num_clips=10, min_len=15, max_len=60, platforms=None, output_dir=None)` | The whole pipeline. Returns every clip with path, score, reasons, hook and per-platform metadata. |
+| `clip_video(source, niche="generic", num_clips=10, min_len=30, max_len=70, platforms=None, output_dir=None)` | The whole pipeline. Returns every clip with path, score, reasons, hook and per-platform metadata. |
 | `analyze_video(source, force=False)` | Transcript sentences with timestamps, scene cuts, audio peaks, 1 Hz energy and motion curves. Cached. |
 | `score_moments(source, niche, num_clips, min_len, max_len)` | Ranked moments with a 0-100 score, per-signal contributions and plain-language reasons. Renders nothing. |
 | `generate_metadata(clip_path, platform, niche=None)` | Title, description, hashtags and hook for one existing clip and platform. |
@@ -141,7 +141,8 @@ are the easiest way) and keep `whisper.device: auto`; the server picks `large-v3
   commentary, voiceover or reaction when clipping someone else's video; `clips.json` keeps `source` for
   attribution and `captions/*.srt` makes voiceover scripting easy.
 - YouTube does not monetize graphic game violence in the first 7 seconds; the `gta6` profile penalizes it.
-- Clips stay ≤ 60 s by default because a Short over one minute with a Content ID claim is blocked globally.
+- Clips run 30 s to 1:10 by default. Note that a YouTube Short over one minute with a Content ID claim is
+  blocked globally, so pass `max_len=60` when clipping third-party footage for Shorts.
 
 ## Tests
 
@@ -155,6 +156,9 @@ uv run ruff check src tests
 
 - *`ffmpeg` was not found on PATH* — install FFmpeg; on Windows restart the terminal after installing.
 - *The video is private / unavailable* — only public, non-age-gated videos can be downloaded.
+- *yt-dlp warns "n challenge solving failed / Some formats may be missing"* — YouTube's player needs a
+  JavaScript runtime for some formats. Downloads still work (1080p was fetched without it); install
+  `deno` (`brew install deno` / `winget install DenoLand.Deno`) to silence it and unlock every format.
 - *Transcription is slow on CPU* — set `whisper.model: small` (default on CPU) or `base`; on Apple Silicon
   make sure you installed with `--extra mlx`.
 - Logs: `logs/viral-clipper.log` (rotating). The MCP wire uses stdout, so nothing is ever printed there.

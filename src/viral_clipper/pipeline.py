@@ -37,8 +37,8 @@ class ClipRequest:
     source: str
     niche: str = "generic"
     num_clips: int = 10
-    min_len: float = 15.0
-    max_len: float = 60.0
+    min_len: float = 30.0
+    max_len: float = 70.0
     platforms: list[Platform] = field(default_factory=lambda: list(ALL_PLATFORMS))
     output_dir: str | None = None
 

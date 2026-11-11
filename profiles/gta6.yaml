@@ -28,8 +28,8 @@ weights:
   llm_hook_flow_value_trend: 0.50
 
 length_prior:
-  mean_s: 25
-  std_s: 10
+  mean_s: 40
+  std_s: 12
 
 # word -> weight (case-insensitive, matched on word stems)
 keywords:

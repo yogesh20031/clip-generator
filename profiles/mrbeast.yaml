@@ -27,7 +27,7 @@ weights:
   llm_hook_flow_value_trend: 0.80
 
 length_prior:
-  mean_s: 45
+  mean_s: 50
   std_s: 12
 
 keywords:

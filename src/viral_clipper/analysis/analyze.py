@@ -52,6 +52,29 @@ def load_cached(work_dir: Path, fp: str) -> AnalysisResult | None:
         return None
 
 
+def _transcript_path(work_dir: Path) -> Path:
+    return work_dir / "transcript.json"
+
+
+def _save_transcript(work_dir: Path, fp: str, transcript: Transcript) -> None:
+    payload = {"fingerprint": fp, "transcript": transcript.model_dump()}
+    _transcript_path(work_dir).write_text(json.dumps(payload), encoding="utf-8")
+
+
+def _load_transcript(work_dir: Path, fp: str) -> Transcript | None:
+    path = _transcript_path(work_dir)
+    if not path.exists():
+        return None
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+        if data.get("fingerprint") != fp:
+            return None
+        return Transcript.model_validate(data["transcript"])
+    except (OSError, ValueError, KeyError) as exc:
+        log.warning("ignoring unreadable transcript cache %s: %s", path, exc)
+        return None
+
+
 def analyze(
     video: VideoInfo,
     work_dir: Path,
@@ -89,11 +112,18 @@ def analyze(
 
         t0 = time.perf_counter()
         stages.report("transcribe", 0.0, "Transcribing speech")
-        try:
-            transcript = transcribe_mod.transcribe(wav, cfg.whisper, cfg.analysis.sentence_pause_s)
-        except Exception as exc:  # ASR is optional: fall back to signal-only analysis
-            log.exception("transcription failed; continuing without transcript")
-            transcript = Transcript(backend=f"failed: {type(exc).__name__}")
+        cached_transcript = None if force else _load_transcript(work_dir, fp)
+        if cached_transcript is not None:
+            transcript = cached_transcript
+            log.info("reusing transcript from an earlier (interrupted) run")
+        else:
+            try:
+                transcript = transcribe_mod.transcribe(wav, cfg.whisper, cfg.analysis.sentence_pause_s)
+                # Transcription is by far the slowest stage: persist it on its own so a killed run keeps it.
+                _save_transcript(work_dir, fp, transcript)
+            except Exception as exc:  # ASR is optional: fall back to signal-only analysis
+                log.exception("transcription failed; continuing without transcript")
+                transcript = Transcript(backend=f"failed: {type(exc).__name__}")
         timings["transcribe"] = time.perf_counter() - t0
     else:
         log.warning("%s has no audio stream; skipping audio + transcript", video.title)

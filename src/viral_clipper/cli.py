@@ -111,8 +111,8 @@ def build_parser() -> argparse.ArgumentParser:
         p.add_argument("source", help="YouTube URL or local video path")
         p.add_argument("--niche", default="generic", choices=list_profiles())
         p.add_argument("--num-clips", type=int, default=10)
-        p.add_argument("--min-len", type=float, default=15)
-        p.add_argument("--max-len", type=float, default=60)
+        p.add_argument("--min-len", type=float, default=30)
+        p.add_argument("--max-len", type=float, default=70)
 
     p = sub.add_parser("clip", help="analyze, score, cut and write metadata")
     common(p)

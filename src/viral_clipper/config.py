@@ -60,8 +60,8 @@ class AnalysisConfig(BaseModel):
 
 class ClipConfig(BaseModel):
     num_clips: int = 10
-    min_len: float = 15.0
-    max_len: float = 60.0
+    min_len: float = 30.0
+    max_len: float = 70.0
     min_gap_s: float = 2.0
     width: int = 1080
     height: int = 1920

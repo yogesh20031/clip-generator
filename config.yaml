@@ -29,9 +29,9 @@ analysis:
   spike_z: 2.5
 
 clip:
-  num_clips: 10
-  min_len: 15
-  max_len: 60
+  num_clips: 10          # at least this many per video when the source is long enough
+  min_len: 30            # seconds; clips run 30 s to 1:10 by default
+  max_len: 70
   min_gap_s: 2
   width: 1080
   height: 1920
