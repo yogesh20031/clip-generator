@@ -64,7 +64,7 @@ Check with `claude mcp list`, then in a Claude Code session:
 | `analyze_video(source, force=False)` | Transcript sentences with timestamps, scene cuts, audio peaks, 1 Hz energy and motion curves. Cached. |
 | `score_moments(source, niche, num_clips, min_len, max_len)` | Ranked moments with a 0-100 score, per-signal contributions and plain-language reasons. Renders nothing. |
 | `generate_metadata(clip_path, platform, niche=None)` | Title, description, hashtags and hook for one existing clip and platform. |
-| `set_clip_metadata(clip_path, platform, title, description, hashtags, hook="")` | Save your own copy into `clips.json` / `clips.csv`. |
+| `set_clip_metadata(clip_path, platform, title, description, hashtags, hook="")` | Save your own copy into `clips.json`, `clips.csv` and the clip's `.txt` sheet. |
 | `list_outputs(output_dir=None)` | Every processed video and its saved clips. |
 
 `source` is a YouTube URL (anything yt-dlp supports) or a path to an `.mp4/.mov/.mkv/.webm` file.
@@ -88,6 +88,7 @@ uv run viral-clipper              # = serve (MCP over stdio)
 ├── source.mp4            downloaded source (local files are used in place)
 ├── analysis.json         cached transcript + signal curves
 ├── clip_01.mp4 … clip_10.mp4   1080x1920, 30 fps, H.264 + AAC 48 kHz, -14 LUFS
+├── clip_01.txt … clip_10.txt   copy sheet per clip: hook, title, hashtags, description for each platform
 ├── thumbnails/clip_NN.jpg      frame at the payoff moment
 ├── captions/clip_NN.srt|.ass   editable captions
 ├── clips.json            full records: score, timestamps, reasons, features, hook, metadata per platform

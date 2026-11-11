@@ -90,6 +90,10 @@ def test_outputs_roundtrip_and_update(tmp_path: Path) -> None:
 
     entries = list_outputs(tmp_path)
     assert len(entries) == 1 and entries[0].clip_count == 1
+    txt = work / "clip_01.txt"
+    assert txt.exists()
+    sheet = txt.read_text(encoding="utf-8")
+    assert "Title: t" in sheet and "Hashtags: #a" in sheet and "HOOK" in sheet and "TikTok" in sheet
 
     new = ClipMetadata(
         platform=Platform.TIKTOK,
@@ -100,6 +104,7 @@ def test_outputs_roundtrip_and_update(tmp_path: Path) -> None:
     )
     updated = update_clip_metadata(clip_file, Platform.TIKTOK, new, tmp_path)
     assert updated.metadata[Platform.TIKTOK].title == "Better title" and updated.hook == "New hook"
+    assert "Title: Better title" in (work / "clip_01.txt").read_text(encoding="utf-8")
     rows = list(csv.DictReader((work / "clips.csv").open(encoding="utf-8")))
     assert {r["platform"] for r in rows} == {p.value for p in ALL_PLATFORMS}
     assert next(r for r in rows if r["platform"] == "tiktok")["title"] == "Better title"

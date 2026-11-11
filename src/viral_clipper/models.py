@@ -142,6 +142,8 @@ class ClipRecord(BaseModel):
     path: str
     thumbnail_path: str
     srt_path: str
+    # clip_NN.txt next to the clip: hook, title, hashtags and description for every platform.
+    metadata_txt: str = ""
     start: float
     end: float
     duration: float

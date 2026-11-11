@@ -27,8 +27,55 @@ CSV_COLUMNS = [
 ]
 
 
+PLATFORM_LABELS = {
+    Platform.YOUTUBE_SHORTS: "YouTube Shorts",
+    Platform.TIKTOK: "TikTok",
+    Platform.INSTAGRAM_REELS: "Instagram Reels",
+    Platform.FACEBOOK_REELS: "Facebook Reels",
+}
+
+
+def _fmt_t(t: float) -> str:
+    return f"{int(t // 60)}:{int(t % 60):02d}"
+
+
+def clip_text(clip: ClipRecord, video_title: str) -> str:
+    """Human-readable copy sheet for one clip: paste straight into the upload form."""
+    header = (
+        f'{Path(clip.path).name}  |  from "{video_title}"  |  '
+        f"{_fmt_t(clip.start)}-{_fmt_t(clip.end)} ({clip.duration:.0f}s)  |  score {clip.score:.0f}/100"
+    )
+    lines = [
+        header,
+        f"Why: {'; '.join(clip.reasons)}",
+        "",
+        f"HOOK (on-screen, first 2s): {clip.hook}",
+        "",
+    ]
+    for platform, meta in clip.metadata.items():
+        lines += [
+            f"==== {PLATFORM_LABELS.get(platform, platform.value)} ====",
+            f"Title: {meta.title}",
+            f"Hashtags: {' '.join(meta.hashtags)}",
+            "Description:",
+            meta.description,
+            "",
+        ]
+    if clip.transcript_text:
+        lines += ["==== Transcript ====", clip.transcript_text, ""]
+    return "\n".join(lines)
+
+
+def write_clip_text(clip: ClipRecord, video_title: str) -> Path:
+    dest = Path(clip.path).with_suffix(".txt")
+    dest.write_text(clip_text(clip, video_title), encoding="utf-8")
+    return dest
+
+
 def write_outputs(result: ClipVideoResult) -> None:
     Path(result.clips_json).write_text(result.model_dump_json(indent=2), encoding="utf-8")
+    for clip in result.clips:
+        clip.metadata_txt = str(write_clip_text(clip, result.video_title))
     with Path(result.clips_csv).open("w", newline="", encoding="utf-8") as fh:
         writer = csv.DictWriter(fh, fieldnames=CSV_COLUMNS)
         writer.writeheader()
