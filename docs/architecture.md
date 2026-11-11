@@ -23,6 +23,7 @@ scoring/           signals.py   per-video robust 0-1 normalization
 render/            crop.py      YuNet face → motion centroid → centre, EMA-smoothed, cut resets → crop expr
                    captions.py  Pillow word-state PNGs → concat demuxer overlay (no libass needed)
                    hook_overlay.py  hook card PNG for the first ~2 s
+                   thumbnail.py face/contrast/sharpness-scored frame near the payoff + alternates
                    ffmpeg.py    loudnorm two-pass (-14 LUFS / -1 dBTP / LRA 11), progress parsing
                    clip.py      one ffmpeg call: crop → scale 1080x1920 → overlays → x264 + aac
    ▼
@@ -52,11 +53,11 @@ Every long tool streams `report_progress` notifications; pipeline code runs on a
 `score = 100 · clip(Σ wᵢ·fᵢ / Σ positive wᵢ, 0, 1)`, features in 0-1, penalties negative. Features:
 `audio_peak, motion_intensity, scene_cut_density, event_density, speech_excitement, laughter_shout,
 keyword_hits, money_number_mentions, twist_connectives, payoff_in_window, hook_strength,
-sentence_boundary_bonus, length_prior, silence_penalty, violence_first7s` (+ zero-weight v2 slots
+sentence_boundary_bonus, length_prior, context_completeness, silence_penalty, violence_first7s` (+ zero-weight v2 slots
 `face_reaction, ocr_banner, audio_event_class`, and `llm_hook_flow_value_trend` which only counts when
 Claude scored the clip). Weights and their research basis: `docs/research.md` §5.
 
-Selection is greedy by score with no overlap and a `min_gap_s` buffer. Clips start on a sentence start
+Windows with `context_completeness < clip.min_context` are dropped first (a clip must make sense on its own). Selection is then greedy by score with no overlap and a `min_gap_s` buffer. Clips start on a sentence start
 (or a shot cut just before it) and end on a sentence end, so speech is never cut mid-sentence.
 
 ## Design decisions

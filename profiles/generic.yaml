@@ -16,6 +16,7 @@ weights:
   hook_strength: 0.60
   sentence_boundary_bonus: 0.60
   length_prior: 0.40
+  context_completeness: 0.80   # clip must stand alone: real start, setup, payoff, ending
   silence_penalty: -0.70
   violence_first7s: -0.30
   face_reaction: 0.0

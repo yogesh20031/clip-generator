@@ -109,6 +109,21 @@ uv run viral-clipper              # = serve (MCP over stdio)
 6. **Render**: face → motion → centre reframe to 9:16 with smooth pans, PNG word captions, hook card for
    the first 2 s, two-pass `loudnorm`, x264 CRF 18.
 
+### Rules every clip must satisfy
+
+1. **It stands on its own.** A viewer who has never seen the source must still get it: the clip opens on a
+   real sentence start (never on "and…", "but…", "so…" or a dangling pronoun), has at least ~8 s of
+   setup before the payoff, ends on a full stop, and carries enough speech (or, for gameplay, enough
+   build-up) to be a complete beat. This is the `context_completeness` feature; windows below
+   `clip.min_context` (0.35) are skipped while enough better ones exist, and the mrbeast/generic profiles
+   weight it 0.9/0.8 so a self-contained moment outranks a louder fragment.
+2. **The thumbnail is picked for clicks.** Frames are sampled across the finished clip and scored on the
+   biggest visible face/reaction, contrast and sharpness, biased towards the payoff. The best frame is
+   `thumbnails/clip_NN.jpg`; two alternates (`_alt1`, `_alt2`) sit beside it so you can choose. The chosen
+   time is recorded in `clips.json` (`thumbnail_time`). Add your own numbers later in each clip's
+   `analytics` field (views, CTR, viewed-vs-swiped) and they feed the next round of weight tuning.
+3. **Never cut mid-sentence**, never letterbox, never watermark, never mute the original audio.
+
 The weights and hook templates come from the research in [`docs/research.md`](docs/research.md); the
 module layout is in [`docs/architecture.md`](docs/architecture.md).
 

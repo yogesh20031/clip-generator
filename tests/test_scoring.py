@@ -88,3 +88,50 @@ def test_pick_hook_pattern_shapes() -> None:
     assert pick_hook_pattern({"twist_connectives": 0.5}) == "open_loop"
     assert pick_hook_pattern({"money_number_mentions": 0.6}) == "curiosity_gap"
     assert pick_hook_pattern({}) == "bold_claim"
+
+
+def test_context_rule_prefers_self_contained_windows(
+    sample_video: Path, test_config: Config, transcript: Transcript
+) -> None:
+    from viral_clipper.models import Sentence, Word
+    from viral_clipper.scoring.candidates import Window
+    from viral_clipper.scoring.scorer import Scorer
+
+    result = _analysis_with_transcript(sample_video, test_config, transcript)
+    scorer = Scorer(result, load_profile("mrbeast"))
+    # Same signals, two framings: one opens on a continuation word and trails off, one is a full beat.
+    full = scorer.features(Window(start=1.0, end=20.0, on_sentences=True))[0]
+    continuation_words = [Word(text="and", start=1.0, end=1.2), Word(text="then", start=1.3, end=1.5)]
+    cont = result.model_copy(
+        update={
+            "transcript": transcript.model_copy(
+                update={
+                    "words": continuation_words + [w for w in transcript.words if w.start > 1.6],
+                    "sentences": [Sentence(text="and then", start=1.0, end=1.5, words=continuation_words)]
+                    + transcript.sentences[1:],
+                }
+            )
+        }
+    )
+    partial = Scorer(cont, load_profile("mrbeast")).features(Window(start=1.0, end=20.0, on_sentences=False))[0]
+    assert full["context_completeness"] > partial["context_completeness"]
+    assert partial["context_completeness"] < 0.6
+
+
+def test_min_context_filters_mid_thought_windows(
+    sample_video: Path, test_config: Config, transcript: Transcript
+) -> None:
+    result = _analysis_with_transcript(sample_video, test_config, transcript)
+    selected, scored = score_moments(
+        result,
+        load_profile("mrbeast"),
+        num_clips=2,
+        min_len=8,
+        max_len=20,
+        pre_roll=0.3,
+        post_roll=0.4,
+        min_gap=1.0,
+        min_context=0.5,
+    )
+    weak = [c for c in scored if c.features["context_completeness"] < 0.5]
+    assert all(c.features["context_completeness"] >= 0.5 for c in selected) or len(weak) == len(scored)

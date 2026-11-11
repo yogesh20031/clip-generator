@@ -44,6 +44,8 @@ clip:
   loudness_lra: 11
   pre_roll_s: 0.3
   post_roll_s: 0.4
+  min_context: 0.35      # every clip must stand on its own (see README: rules)
+  thumbnail_alternatives: 2
 
 captions:
   enabled: true

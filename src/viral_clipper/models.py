@@ -152,6 +152,9 @@ class ClipRecord(BaseModel):
     hook_pattern: str
     metadata: dict[Platform, ClipMetadata]
     features: dict[str, float] = Field(default_factory=dict)
+    thumbnail_time: float = 0.0
+    thumbnail_alternatives: list[str] = Field(default_factory=list)
+    # Fill in after publishing (views, viewed-vs-swiped, skip rate, CTR) to refit profile weights later.
     analytics: dict[str, float] = Field(default_factory=dict)
 
 

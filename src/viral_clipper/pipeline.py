@@ -102,6 +102,7 @@ def run_score(req: ClipRequest, cfg: Config, progress: ProgressFn | None = None)
         cfg.clip.pre_roll_s,
         cfg.clip.post_roll_s,
         cfg.clip.min_gap_s,
+        cfg.clip.min_context,
     )
     stages.report("score", 1.0, f"{len(selected)} moments selected")
     return selected
@@ -149,6 +150,7 @@ def run_clip_video(req: ClipRequest, cfg: Config, progress: ProgressFn | None = 
         cfg.clip.pre_roll_s,
         cfg.clip.post_roll_s,
         cfg.clip.min_gap_s,
+        cfg.clip.min_context,
     )
     timings["score"] = time.perf_counter() - t0
     if not selected:
@@ -212,6 +214,8 @@ def run_clip_video(req: ClipRequest, cfg: Config, progress: ProgressFn | None = 
                 hook_pattern=cand.hook_pattern,
                 metadata=meta,
                 features=cand.features,
+                thumbnail_time=rendered.thumbnail_time,
+                thumbnail_alternatives=[str(a) for a in rendered.thumbnail_alternatives],
             )
         )
     timings["render"] = t_render

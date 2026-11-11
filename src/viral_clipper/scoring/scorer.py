@@ -23,6 +23,13 @@ TWIST_RE = re.compile(
 
 HOOK_WINDOW_S = 3.0
 VIOLENCE_WINDOW_S = 7.0
+# A clip must carry its own context: no mid-thought starts, a setup before the payoff, a real ending.
+CONTINUATION_RE = re.compile(
+    r"^(?:and|but|so|because|cause|'cause|then|which|also|or|plus|anyway|that's why|like i said)\b", re.IGNORECASE
+)
+PRONOUN_START_RE = re.compile(r"^(?:he|she|it|they|him|her|them|this|that|these|those)\b", re.IGNORECASE)
+MIN_SETUP_S = 8.0  # seconds of setup wanted before the payoff
+CONTEXT_WORDS = 40  # words for a speech clip to count as "complete"
 
 
 def _fmt_t(t: float) -> str:
@@ -148,10 +155,47 @@ class Scorer:
         f["violence_first7s"] = 1.0 if violent_first7 else (0.5 if (violent_any and early_event) else 0.0)
         detail["violence_first7s"] = "violence in the first 7 s (YouTube ad rule)"
 
+        f["context_completeness"], detail["context_completeness"] = self._context(
+            words, text, peak_rel * dur, peak_val, window.on_sentences
+        )
+
         # v2 placeholders: present so weights can be tuned now, zero until detectors exist.
         for name in ("face_reaction", "ocr_banner", "audio_event_class", "llm_hook_flow_value_trend"):
             f.setdefault(name, 0.0)
         return f, detail, peak_time
+
+    @staticmethod
+    def _context(
+        words: list, text: str, peak_offset_s: float, peak_val: float, on_sentences: bool
+    ) -> tuple[float, str]:
+        """How self-contained the clip is: 1.0 = a viewer needs nothing from outside the clip."""
+        if not words:
+            # Pure gameplay/action: context is visual; reward a setup before the peak and clean cut edges.
+            setup = min(1.0, peak_offset_s / MIN_SETUP_S) if peak_val >= 0.15 else 0.6
+            return round(0.5 + 0.5 * setup, 3), "action builds up before the payoff"
+        first = words[0].text.strip("\"'“”(")
+        start_ok = 0.0 if CONTINUATION_RE.match(first) else (0.5 if PRONOUN_START_RE.match(first) else 1.0)
+        last = words[-1].text.rstrip("\"'”)")
+        end_ok = 1.0 if last.endswith((".", "!", "?", "…")) else 0.4
+        setup_ok = min(1.0, peak_offset_s / MIN_SETUP_S) if peak_val >= 0.15 else 0.6
+        content_ok = min(1.0, len(words) / CONTEXT_WORDS)
+        if not on_sentences:
+            start_ok *= 0.5
+            end_ok *= 0.5
+        score = 0.35 * start_ok + 0.2 * end_ok + 0.25 * setup_ok + 0.2 * content_ok
+        problems = []
+        if start_ok < 1.0:
+            problems.append(f"opens mid-thought ('{first}…')")
+        if end_ok < 1.0:
+            problems.append("ends without a full stop")
+        if setup_ok < 0.6:
+            problems.append("payoff arrives before any setup")
+        if content_ok < 0.5:
+            problems.append("too little speech to stand alone")
+        detail = (
+            "self-contained: setup, payoff and a clean ending" if not problems else "context: " + "; ".join(problems)
+        )
+        return round(score, 3), detail
 
     # --- scoring -----------------------------------------------------------------------------
 
@@ -209,11 +253,19 @@ def score_moments(
     pre_roll: float,
     post_roll: float,
     min_gap: float,
+    min_context: float = 0.35,
 ) -> tuple[list[Candidate], list[Candidate]]:
-    """Returns (selected non-overlapping top clips, all scored candidates sorted by score)."""
+    """Returns (selected non-overlapping top clips, all scored candidates sorted by score).
+
+    Rule: a clip must make sense on its own. Windows below `min_context` are dropped as long as enough
+    self-contained windows remain to fill the request.
+    """
     scorer = Scorer(result, profile)
     windows = generate_windows(result, min_len, max_len, pre_roll, post_roll)
     scored = [scorer.score_window(w) for w in windows]
     scored.sort(key=lambda c: c.score, reverse=True)
-    selected = select_non_overlapping(scored, num_clips, min_gap)
+    eligible = [c for c in scored if c.features.get("context_completeness", 1.0) >= min_context]
+    selected = select_non_overlapping(eligible, num_clips, min_gap)
+    if len(selected) < num_clips:
+        selected = select_non_overlapping(scored, num_clips, min_gap)
     return selected, scored

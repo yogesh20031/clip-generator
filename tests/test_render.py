@@ -48,6 +48,9 @@ def test_render_clip_produces_vertical_captioned_normalized_mp4(
     )
     rendered = render_clip(analysis, cand, 1, "WAIT FOR IT…", work_dir, test_config)
     assert rendered.path.exists() and rendered.thumbnail.exists()
+    assert 0.0 <= rendered.thumbnail_time <= 12.6
+    assert len(rendered.thumbnail_alternatives) <= test_config.clip.thumbnail_alternatives
+    assert all(p.exists() for p in rendered.thumbnail_alternatives)
     assert rendered.srt.read_text(encoding="utf-8").strip(), "captions were written"
 
     info = probe(rendered.path)

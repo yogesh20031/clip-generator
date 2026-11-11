@@ -12,8 +12,9 @@ from viral_clipper.models import AnalysisResult, Candidate
 from viral_clipper.progress import ProgressFn
 from viral_clipper.render import captions as cap
 from viral_clipper.render.crop import plan_crop
-from viral_clipper.render.ffmpeg import loudnorm_filter, measure_loudness, run_ffmpeg, write_thumbnail
+from viral_clipper.render.ffmpeg import loudnorm_filter, measure_loudness, run_ffmpeg
 from viral_clipper.render.hook_overlay import render_hook
+from viral_clipper.render.thumbnail import pick_thumbnail
 
 log = logging.getLogger(__name__)
 
@@ -24,6 +25,8 @@ class RenderedClip:
     thumbnail: Path
     srt: Path
     ass: Path
+    thumbnail_time: float = 0.0
+    thumbnail_alternatives: tuple[Path, ...] = ()
 
 
 def clip_name(index: int) -> str:
@@ -145,7 +148,21 @@ def render_clip(
 
     # 5. Thumbnail at the payoff.
     report(0.97, "thumbnail")
-    write_thumbnail(out_path, max(0.0, min(duration - 0.1, cand.peak_time - cand.start)), thumb_path)
+    pick = pick_thumbnail(
+        out_path,
+        duration,
+        max(0.0, min(duration - 0.1, cand.peak_time - cand.start)),
+        cfg.face_model_path,
+        thumb_path,
+        alternatives=cfg.clip.thumbnail_alternatives,
+    )
     shutil.rmtree(tmp, ignore_errors=True)
     report(1.0, "done")
-    return RenderedClip(path=out_path, thumbnail=thumb_path, srt=srt_path, ass=ass_path)
+    return RenderedClip(
+        path=out_path,
+        thumbnail=pick.path,
+        srt=srt_path,
+        ass=ass_path,
+        thumbnail_time=pick.time,
+        thumbnail_alternatives=tuple(pick.alternatives),
+    )

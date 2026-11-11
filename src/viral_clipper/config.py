@@ -75,6 +75,10 @@ class ClipConfig(BaseModel):
     # Seconds of lead-in / tail added around sentence boundaries.
     pre_roll_s: float = 0.3
     post_roll_s: float = 0.4
+    # Windows whose context_completeness is below this are skipped while enough better ones exist.
+    min_context: float = 0.35
+    # Thumbnail: how many alternative frames to save next to the chosen one.
+    thumbnail_alternatives: int = 2
 
 
 class CaptionConfig(BaseModel):

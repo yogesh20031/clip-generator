@@ -93,6 +93,8 @@ No platform publishes ranking weights. Nothing below claims knowledge of the int
 | 10 | Return fewer clips rather than duplicates; never re-upload | IG, FB, TikTok, YT |
 | 11 | Clean metadata: topical caption, 3-10 hashtags by platform, no links, not all caps | TikTok, FB, YT |
 | 12 | Reserve an `analytics` field per clip for the feedback loop (viewed-vs-swiped, skip rate) | YT, IG, FB |
+| 13 | **Context rule (user requirement 2026-11-11):** a clip must be a complete beat — real sentence start (no "and/but/so…"), ≥ 8 s setup before the payoff, full-stop ending, enough speech; scored as `context_completeness`, hard-filtered below `min_context` | IG (sends per reach need self-contained moments), FB (hook *or payoff* best practice), MrBeast doc (expectations set then met) |
+| 14 | **Thumbnail rule (user requirement 2026-11-11):** pick the frame with the biggest face/reaction, high contrast and sharpness near the payoff; save alternates; record `thumbnail_time`; collect CTR/views into `analytics` | MrBeast doc (CTR + AVD + AVP; dominant faces, high contrast), thumbnail pattern analyses in §4.2 |
 
 ---
 
