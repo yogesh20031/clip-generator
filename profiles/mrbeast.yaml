@@ -1,0 +1,130 @@
+# MrBeast-style challenge / reveal content. Weights come from docs/research.md §5.
+name: mrbeast
+description: >
+  Reveals, money counts, eliminations, big reactions, twists and high-stakes moments.
+  Speech, numbers and reactions dominate; motion matters less than in gameplay.
+
+weights:
+  audio_peak: 0.55
+  motion_intensity: 0.30
+  scene_cut_density: 0.40
+  event_density: 0.20
+  speech_excitement: 0.85
+  laughter_shout: 0.80
+  keyword_hits: 0.75
+  money_number_mentions: 0.90
+  twist_connectives: 0.70
+  payoff_in_window: 0.65
+  hook_strength: 0.60
+  sentence_boundary_bonus: 0.70
+  length_prior: 0.40
+  silence_penalty: -0.80
+  violence_first7s: -0.10
+  # v2 signals
+  face_reaction: 0.0
+  ocr_banner: 0.0
+  audio_event_class: 0.0
+  llm_hook_flow_value_trend: 0.80
+
+length_prior:
+  mean_s: 45
+  std_s: 12
+
+keywords:
+  dollars: 1.0
+  million: 1.0
+  thousand: 0.9
+  money: 0.9
+  cash: 0.8
+  win: 0.8
+  wins: 0.8
+  winner: 0.9
+  lose: 0.7
+  eliminated: 1.0
+  elimination: 1.0
+  "last to leave": 1.0
+  challenge: 0.6
+  prize: 0.8
+  reveal: 0.9
+  surprise: 0.8
+  "oh my god": 0.9
+  "no way": 0.9
+  insane: 0.7
+  crazy: 0.6
+  unbelievable: 0.8
+  "what the": 0.6
+  "you're kidding": 0.8
+  decision: 0.6
+  "walk away": 0.9
+  offer: 0.7
+  deal: 0.7
+  twist: 0.9
+  "plot twist": 1.0
+  seconds: 0.5
+  hours: 0.6
+  days: 0.6
+  survive: 0.7
+  survived: 0.7
+  "give away": 0.8
+  "giving away": 0.8
+  gift: 0.6
+  free: 0.5
+  beat: 0.6
+  pro: 0.5
+  athlete: 0.5
+
+violence_keywords: []
+
+hook_templates:
+  - { pattern: open_loop, text: "He had {seconds} seconds to {task}… for ${amount}" }
+  - { pattern: open_loop, text: "Last one to {action} wins ${amount}" }
+  - { pattern: open_loop, text: "{n} people, 1 {prize}, and then {twist}" }
+  - { pattern: curiosity_gap, text: "Nobody expected {person} to {choice}" }
+  - { pattern: curiosity_gap, text: "This is why {person} got eliminated" }
+  - { pattern: curiosity_gap, text: "The twist nobody saw coming" }
+  - { pattern: bold_claim, text: "${low} vs ${high} {item}" }
+  - { pattern: bold_claim, text: "{n} days in {place} and he {outcome}" }
+  - { pattern: shock, text: "She turned down ${amount} for THIS" }
+  - { pattern: shock, text: "He gave a stranger ${amount}… their reaction 😭" }
+  - { pattern: shock, text: "MrBeast didn't expect this answer" }
+  - { pattern: wait_for_it, text: "Wait until you see what's in the {container}" }
+  - { pattern: wait_for_it, text: "Would YOU take ${amount} or {alternative}?" }
+
+title_templates:
+  - "${low} vs ${high} {item}"
+  - "Last To {action} Wins ${amount}"
+  - "He Turned Down ${amount}?!"
+  - "The Craziest {challenge} Elimination"
+  - "Giving {person} ${amount}"
+  - "{n} Hours in {place} for ${amount}"
+  - "Ages 1-100 {challenge}"
+  - "Would You Take ${amount}?"
+  - "This Twist Changed Everything"
+  - "Their Reaction to ${amount} 😭"
+
+description_template: "{hook}\n\n{summary}\n\n{hashtags}"
+
+hashtags:
+  youtube_shorts: ["#MrBeast", "#Shorts", "#Challenge"]
+  tiktok: ["#mrbeast", "#mrbeastchallenge", "#challenge", "#money", "#reaction", "#fyp", "#viral", "#foryou"]
+  instagram_reels: ["#mrbeast", "#challenge", "#money", "#reaction", "#reels"]
+  facebook_reels: ["#MrBeast", "#Challenge", "#Reels"]
+
+placeholders:
+  seconds: ["10", "30", "60"]
+  task: ["win", "decide", "finish"]
+  amount: ["10,000", "100,000", "1,000,000"]
+  action: ["leave", "let go", "stop"]
+  n: ["100", "10", "50"]
+  prize: ["prize", "winner", "jackpot"]
+  twist: ["this happened", "it flipped", "nobody expected it"]
+  person: ["him", "her", "the contestant"]
+  choice: ["say no", "walk away", "win"]
+  low: ["1", "10", "100"]
+  high: ["1,000,000", "100,000", "10,000"]
+  item: ["challenge", "prize", "car"]
+  place: ["the box", "the circle", "the room"]
+  outcome: ["won", "quit", "lost it all"]
+  container: ["box", "briefcase", "safe"]
+  alternative: ["the mystery box", "the car", "the chance"]
+  challenge: ["Challenge", "Showdown", "Battle"]

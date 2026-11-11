@@ -1,0 +1,125 @@
+# GTA 6 / GTA V gameplay profile. Weights come from docs/research.md §5.
+# Signals are normalized 0-1 per video; negative weights are penalties.
+name: gta6
+description: >
+  Action gameplay: chases, explosions, crashes, ragdoll fails, funny glitches, NPC chaos.
+  Audio and motion dominate; speech matters less than in talking-head content.
+
+weights:
+  audio_peak: 0.80
+  motion_intensity: 0.85
+  scene_cut_density: 0.50
+  event_density: 0.90
+  speech_excitement: 0.60
+  laughter_shout: 0.70
+  keyword_hits: 0.45
+  money_number_mentions: 0.05
+  twist_connectives: 0.25
+  payoff_in_window: 0.70
+  hook_strength: 0.60
+  sentence_boundary_bonus: 0.30
+  length_prior: 0.40
+  silence_penalty: -0.60
+  violence_first7s: -0.70
+  # v2 signals (declared so the schema is stable; no detector yet)
+  face_reaction: 0.0
+  ocr_banner: 0.0
+  audio_event_class: 0.0
+  llm_hook_flow_value_trend: 0.50
+
+length_prior:
+  mean_s: 25
+  std_s: 10
+
+# word -> weight (case-insensitive, matched on word stems)
+keywords:
+  cops: 1.0
+  police: 1.0
+  chase: 1.0
+  wanted: 0.8
+  stars: 0.6
+  explosion: 1.0
+  exploded: 1.0
+  blew: 0.8
+  crash: 1.0
+  crashed: 1.0
+  wreck: 0.8
+  flip: 0.7
+  flipped: 0.7
+  ragdoll: 1.0
+  glitch: 1.0
+  bug: 0.6
+  physics: 0.8
+  npc: 0.8
+  helicopter: 0.7
+  jet: 0.7
+  tank: 0.7
+  heist: 0.9
+  getaway: 0.9
+  stunt: 0.9
+  jump: 0.6
+  ramp: 0.7
+  insane: 0.7
+  bro: 0.3
+  "no way": 0.9
+  "oh my god": 0.8
+  "what the": 0.7
+  wasted: 0.9
+  busted: 0.9
+  vice: 0.5
+  lucia: 0.6
+  jason: 0.5
+
+violence_keywords: [kill, killed, shoot, shot, headshot, massacre, murder, slaughter, dead]
+
+hook_templates:
+  - { pattern: wait_for_it, text: "WAIT FOR IT… 💀" }
+  - { pattern: wait_for_it, text: "Don't blink at {t}s" }
+  - { pattern: curiosity_gap, text: "Nobody expected the {npc} to do THIS" }
+  - { pattern: curiosity_gap, text: "Watch the {object} in the background…" }
+  - { pattern: curiosity_gap, text: "GTA 6 NPCs remember {thing}?!" }
+  - { pattern: shock, text: "This {vehicle} should NOT be able to do that" }
+  - { pattern: shock, text: "The cops really {cop_action} 😭" }
+  - { pattern: shock, text: "1 in a million {event} in GTA 6" }
+  - { pattern: bold_claim, text: "GTA 6 {mechanic} is actually insane" }
+  - { pattern: bold_claim, text: "Rockstar didn't patch THIS yet 💀" }
+  - { pattern: bold_claim, text: "GTA 5 vs GTA 6: {feature}" }
+  - { pattern: open_loop, text: "{n}-star chase but {twist}" }
+  - { pattern: open_loop, text: "I tried {stunt} in GTA 6…" }
+  - { pattern: open_loop, text: "POV: you {action} in Vice City" }
+
+title_templates:
+  - "GTA 6 {mechanic} Is Unreal 🤯"
+  - "Wait For The {object}… (GTA 6)"
+  - "{n}-Star Chase Gone Wrong in GTA 6"
+  - "GTA 6 NPCs Are Too Smart"
+  - "I Tried {stunt} in GTA 6"
+  - "GTA 6 Physics Make No Sense"
+  - "1 in a Million GTA 6 Moment"
+  - "GTA 6 vs GTA 5: {feature}"
+  - "Cops in GTA 6 Are Different"
+  - "This GTA 6 Glitch Is Hilarious"
+
+description_template: "{hook}\n\n{summary}\n\n{hashtags}"
+
+hashtags:
+  youtube_shorts: ["#GTA6", "#GTA", "#Shorts"]
+  tiktok: ["#gta6", "#gta", "#gtavi", "#gtaonline", "#gaming", "#gamingclips", "#fyp", "#viral"]
+  instagram_reels: ["#gta6", "#gta", "#gaming", "#gamer", "#reels"]
+  facebook_reels: ["#GTA6", "#Gaming", "#Reels"]
+
+# Fallback fillers when the transcript offers nothing better.
+placeholders:
+  npc: ["NPC", "cop", "pedestrian", "driver"]
+  object: ["car", "cop car", "helicopter", "truck"]
+  thing: ["everything", "your face", "that crash"]
+  vehicle: ["car", "bike", "truck", "jet"]
+  cop_action: ["did that", "gave up", "lost it"]
+  event: ["crash", "glitch", "moment"]
+  mechanic: ["physics", "AI", "ragdoll", "driving"]
+  feature: ["cops", "physics", "NPCs", "water"]
+  n: ["5", "4", "3"]
+  twist: ["it gets worse", "watch the end", "nobody survived"]
+  stunt: ["a ramp jump", "a bike flip", "a highway jump"]
+  action: ["get chased", "lose the cops", "crash a jet"]
+  t: ["3", "5", "8"]

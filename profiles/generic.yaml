@@ -1,0 +1,82 @@
+# Balanced profile for any talking or mixed content.
+name: generic
+description: Balanced weights for vlogs, podcasts, commentary and mixed footage.
+
+weights:
+  audio_peak: 0.65
+  motion_intensity: 0.50
+  scene_cut_density: 0.40
+  event_density: 0.50
+  speech_excitement: 0.75
+  laughter_shout: 0.75
+  keyword_hits: 0.60
+  money_number_mentions: 0.40
+  twist_connectives: 0.50
+  payoff_in_window: 0.65
+  hook_strength: 0.60
+  sentence_boundary_bonus: 0.60
+  length_prior: 0.40
+  silence_penalty: -0.70
+  violence_first7s: -0.30
+  face_reaction: 0.0
+  ocr_banner: 0.0
+  audio_event_class: 0.0
+  llm_hook_flow_value_trend: 0.70
+
+length_prior:
+  mean_s: 35
+  std_s: 12
+
+keywords:
+  "oh my god": 0.9
+  "no way": 0.9
+  insane: 0.7
+  crazy: 0.6
+  unbelievable: 0.8
+  secret: 0.8
+  truth: 0.6
+  never: 0.4
+  "the best": 0.5
+  "the worst": 0.6
+  mistake: 0.7
+  "wait": 0.5
+  "listen": 0.4
+  finally: 0.5
+  reveal: 0.8
+  shocked: 0.8
+  "what the": 0.6
+
+violence_keywords: [kill, killed, shoot, shot, murder, dead]
+
+hook_templates:
+  - { pattern: wait_for_it, text: "WAIT FOR IT…" }
+  - { pattern: curiosity_gap, text: "Nobody talks about {topic}" }
+  - { pattern: curiosity_gap, text: "The part about {topic} nobody expected" }
+  - { pattern: shock, text: "This changed everything" }
+  - { pattern: shock, text: "I did NOT see this coming" }
+  - { pattern: bold_claim, text: "{topic} is not what you think" }
+  - { pattern: bold_claim, text: "The truth about {topic}" }
+  - { pattern: open_loop, text: "Watch what happens when {topic}…" }
+  - { pattern: open_loop, text: "{n} seconds later…" }
+
+title_templates:
+  - "The Truth About {topic}"
+  - "Nobody Expected This"
+  - "Wait For It…"
+  - "{topic} Explained in {n} Seconds"
+  - "This Changed Everything"
+  - "The Moment Everything Flipped"
+  - "You Need To See This"
+  - "What Happened Next Was Wild"
+
+description_template: "{hook}\n\n{summary}\n\n{hashtags}"
+
+hashtags:
+  youtube_shorts: ["#Shorts", "#Viral", "#Trending"]
+  tiktok: ["#fyp", "#foryou", "#viral", "#trending", "#clips"]
+  instagram_reels: ["#reels", "#viral", "#trending", "#explore"]
+  facebook_reels: ["#Reels", "#Viral"]
+
+placeholders:
+  topic: ["this", "it", "that moment"]
+  n: ["10", "30", "60"]
