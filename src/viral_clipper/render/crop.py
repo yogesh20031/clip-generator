@@ -20,8 +20,8 @@ log = logging.getLogger(__name__)
 
 SAMPLE_HZ = 2.0
 DETECT_WIDTH = 320
-EMA_ALPHA = 0.35
-MAX_PAN_PER_S = 0.25  # fraction of frame width per second, clamps whip-pans
+EMA_ALPHA = 0.5
+MAX_PAN_PER_S = 0.5  # fraction of frame width per second: follows a walking subject, clamps whip-pans
 
 
 @dataclass(frozen=True)

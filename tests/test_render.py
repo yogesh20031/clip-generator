@@ -95,3 +95,13 @@ def test_render_clip_produces_vertical_captioned_normalized_mp4(
     lufs = measure_integrated_loudness(rendered.path)
     assert lufs is not None and -17.0 <= lufs <= -11.0, lufs
     assert not (work_dir / ".tmp" / "clip_01").exists(), "temp frames are cleaned up"
+
+
+def test_hook_overlay_drops_undrawable_emoji() -> None:
+    from viral_clipper.render.hook_overlay import drawable_text
+
+    assert (
+        drawable_text("He gave a stranger $100,000… their reaction 😭") == "He gave a stranger $100,000… their reaction"
+    )
+    assert drawable_text("WAIT FOR IT… 💀") == "WAIT FOR IT…"
+    assert drawable_text("Plain text") == "Plain text"

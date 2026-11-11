@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 import textwrap
 from pathlib import Path
 
@@ -10,8 +11,18 @@ from PIL import Image, ImageDraw
 from viral_clipper.config import CaptionConfig
 from viral_clipper.render.captions import _hex_to_rgba, _load_font
 
+# Montserrat has no emoji glyphs (they render as boxes), so on-screen text drops them; metadata keeps them.
+_UNDRAWABLE_RE = re.compile(
+    "[\U0001f000-\U0001faff\U00002600-\U000027bf\U0001f900-\U0001f9ff\ufe0f\u200d\u2b50\u2b55\u203c\u2049]+"
+)
+
+
+def drawable_text(text: str) -> str:
+    return re.sub(r"\s{2,}", " ", _UNDRAWABLE_RE.sub("", text)).strip()
+
 
 def render_hook(text: str, size: tuple[int, int], cfg: CaptionConfig, font_path: Path, dest: Path) -> Path:
+    text = drawable_text(text) or text
     width, height = size
     img = Image.new("RGBA", (width, height), (0, 0, 0, 0))
     draw = ImageDraw.Draw(img)
