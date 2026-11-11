@@ -61,6 +61,7 @@ Check with `claude mcp list`, then in a Claude Code session:
 | Tool | Purpose |
 |---|---|
 | `clip_video(source, niche="generic", num_clips=10, min_len=30, max_len=70, platforms=None, output_dir=None)` | The whole pipeline. Returns every clip with path, score, reasons, hook and per-platform metadata. |
+| `cut_clip(source, start, end=None, duration=None, niche="generic", hook=None, platforms=None, output_dir=None)` | Cut one clip from an exact range (`"17:42"` + `duration="1:20"`), same captions/hook/reframe/loudness, appended as the next clip number. |
 | `analyze_video(source, force=False)` | Transcript sentences with timestamps, scene cuts, audio peaks, 1 Hz energy and motion curves. Cached. |
 | `score_moments(source, niche, num_clips, min_len, max_len)` | Ranked moments with a 0-100 score, per-signal contributions and plain-language reasons. Renders nothing. |
 | `generate_metadata(clip_path, platform, niche=None)` | Title, description, hashtags and hook for one existing clip and platform. |
@@ -75,6 +76,7 @@ Check with `claude mcp list`, then in a Claude Code session:
 
 ```bash
 uv run viral-clipper clip "https://www.youtube.com/watch?v=..." --niche gta6 --num-clips 10
+uv run viral-clipper cut "https://www.youtube.com/watch?v=..." --start 17:42 --duration 1:20 --niche mrbeast
 uv run viral-clipper score ./gameplay.mp4 --niche gta6
 uv run viral-clipper analyze ./gameplay.mp4
 uv run viral-clipper list

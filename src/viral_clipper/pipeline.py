@@ -9,11 +9,11 @@ from pathlib import Path
 
 from viral_clipper.analysis.analyze import analyze, cache_path
 from viral_clipper.config import Config, load_profile
-from viral_clipper.errors import ClipperError, NoClipsError, RenderError
+from viral_clipper.errors import ClipperError, InvalidSourceError, NoClipsError, RenderError
 from viral_clipper.ingest.ffprobe import ensure_ffmpeg
 from viral_clipper.ingest.source import resolve_source
 from viral_clipper.metadata import llm as llm_mod
-from viral_clipper.metadata.outputs import find_clip, write_outputs
+from viral_clipper.metadata.outputs import find_clip, read_result, write_outputs
 from viral_clipper.metadata.templates import TemplateEngine
 from viral_clipper.models import (
     ALL_PLATFORMS,
@@ -27,7 +27,8 @@ from viral_clipper.models import (
 )
 from viral_clipper.progress import ProgressFn, StageProgress
 from viral_clipper.render.clip import render_clip
-from viral_clipper.scoring.scorer import score_moments
+from viral_clipper.scoring.candidates import Window
+from viral_clipper.scoring.scorer import Scorer, score_moments
 
 log = logging.getLogger(__name__)
 
@@ -266,3 +267,100 @@ def run_generate_metadata(clip_path: str, platform: Platform, niche: str | None,
     if llm_mod.llm_enabled(cfg):
         hook, draft, _v = llm_mod.refine_with_llm(cand, result.video_title, profile, hook, draft, [platform], cfg)
     return draft[platform]
+
+
+def parse_timestamp(value: str | float | int) -> float:
+    """Accepts seconds (80, "80", "80.5") or clock strings ("1:20", "17:42", "1:02:03")."""
+    if isinstance(value, int | float):
+        return float(value)
+    text = str(value).strip()
+    if ":" not in text:
+        return float(text)
+    parts = [float(p) for p in text.split(":")]
+    if len(parts) > 3:
+        raise InvalidSourceError(f"Bad timestamp {value!r}; use seconds or mm:ss / h:mm:ss.")
+    total = 0.0
+    for part in parts:
+        total = total * 60 + part
+    return total
+
+
+def run_cut_clip(
+    source: str,
+    start: str | float,
+    end: str | float | None,
+    duration: str | float | None,
+    cfg: Config,
+    niche: str = "generic",
+    hook: str | None = None,
+    platforms: list[Platform] | None = None,
+    output_dir: str | None = None,
+    progress: ProgressFn | None = None,
+) -> ClipRecord:
+    """Cut one clip from an exact time range, with the same captions, hook, reframe and loudness as
+    clip_video, and append it to the video's clips.json / clips.csv as the next clip number."""
+    ensure_ffmpeg()
+    cfg = _with_output_dir(cfg, output_dir)
+    profile = load_profile(niche)
+    t_start = parse_timestamp(start)
+    if end is None and duration is None:
+        raise InvalidSourceError("Give either end or duration for the cut.")
+    t_end = parse_timestamp(end) if end is not None else t_start + parse_timestamp(duration)  # type: ignore[arg-type]
+    if t_end - t_start < 3:
+        raise InvalidSourceError("A cut must be at least 3 seconds long.")
+
+    stages = StageProgress({"ingest": 1.0, "analyze": 8.0, "render": 3.0, "write": 0.1}, progress)
+    video, work_dir = resolve_source(source, cfg, stages.sub("ingest"))
+    if t_end > video.duration + 0.5:
+        raise InvalidSourceError(f"{t_end:.0f}s is past the end of the video ({video.duration:.0f}s).")
+    t_end = min(t_end, video.duration)
+    stages.report("ingest", 1.0, f"Source ready: {video.title}")
+    result = analyze(video, work_dir, cfg, stages.sub("analyze"))
+
+    scorer = Scorer(result, profile)
+    cand = scorer.score_window(Window(start=t_start, end=t_end, on_sentences=False))
+    cand.reasons = [f"manual cut {t_start:.0f}-{t_end:.0f}s", *cand.reasons]
+
+    existing = read_result(work_dir / "clips.json") if (work_dir / "clips.json").exists() else None
+    index = (max((c.index for c in existing.clips), default=0) + 1) if existing else 1
+    plats = platforms or list(ALL_PLATFORMS)
+    engine = TemplateEngine(profile)
+    draft_hook, meta = engine.bundle(cand, index, plats)
+    hook_text = hook.strip() if hook else draft_hook
+    if hook:
+        meta = {p: m.model_copy(update={"hook": hook_text}) for p, m in meta.items()}
+    if llm_mod.llm_enabled(cfg) and not hook:
+        hook_text, meta, _v = llm_mod.refine_with_llm(cand, video.title, profile, draft_hook, meta, plats, cfg)
+
+    rendered = render_clip(result, cand, index, hook_text, work_dir, cfg, progress=stages.sub("render"))
+    record = ClipRecord(
+        index=index,
+        path=str(rendered.path),
+        thumbnail_path=str(rendered.thumbnail),
+        srt_path=str(rendered.srt),
+        start=cand.start,
+        end=cand.end,
+        duration=round(cand.end - cand.start, 2),
+        score=cand.score,
+        reasons=cand.reasons,
+        transcript_text=cand.transcript_text,
+        hook=hook_text,
+        hook_pattern=cand.hook_pattern,
+        metadata=meta,
+        features=cand.features,
+        thumbnail_time=rendered.thumbnail_time,
+        thumbnail_alternatives=[str(a) for a in rendered.thumbnail_alternatives],
+    )
+    if existing is None:
+        existing = ClipVideoResult(
+            video_title=video.title,
+            source=video.source_url or video.path,
+            output_dir=str(work_dir),
+            clips_json=str(work_dir / "clips.json"),
+            clips_csv=str(work_dir / "clips.csv"),
+            clips=[],
+        )
+    existing.clips.append(record)
+    write_outputs(existing)
+    stages.report("write", 1.0, f"Saved {rendered.path.name}")
+    return record

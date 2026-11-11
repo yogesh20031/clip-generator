@@ -23,6 +23,7 @@ from viral_clipper.models import (
     AnalysisSummary,
     Candidate,
     ClipMetadata,
+    ClipRecord,
     ClipVideoResult,
     OutputEntry,
     Platform,
@@ -31,10 +32,10 @@ from viral_clipper.models import (
 log = logging.getLogger(__name__)
 
 INSTRUCTIONS = """viral-clipper cuts long videos (YouTube URL or local file) into vertical 9:16 short clips.
-Typical flow: analyze_video -> score_moments (optional preview) -> clip_video. Clips, clips.json and
-clips.csv land in <output_dir>/<video-title>/ (default ~/Desktop/viral-clipper). Niches: gta6, mrbeast,
-generic. Metadata is template-generated unless Anthropic credentials are configured; you can always
-rewrite copy yourself and persist it with set_clip_metadata."""
+Typical flow: analyze_video -> score_moments (optional preview) -> clip_video; cut_clip renders one exact
+range. Clips, clips.json and clips.csv land in <output_dir>/<video-title>/ (default ~/Desktop/viral-clipper).
+Niches: gta6, mrbeast, generic. Metadata is template-generated unless Anthropic credentials are configured;
+you can always rewrite copy yourself and persist it with set_clip_metadata."""
 
 mcp = MCPServer("viral-clipper", instructions=INSTRUCTIONS)
 
@@ -111,6 +112,39 @@ async def clip_video(
         output_dir=output_dir,
     )
     return await _run(ctx, pipeline.run_clip_video, req, _cfg())
+
+
+@mcp.tool()
+async def cut_clip(
+    source: str,
+    start: str,
+    end: str | None = None,
+    duration: str | None = None,
+    niche: str = "generic",
+    hook: str | None = None,
+    platforms: list[str] | None = None,
+    output_dir: str | None = None,
+    ctx: Context = None,  # type: ignore[assignment]
+) -> ClipRecord:
+    """Cut ONE clip from an exact time range you choose (start plus end or duration, as seconds or
+    mm:ss), with the same 9:16 reframe, word captions, hook card, loudness and metadata as clip_video.
+    It is appended to that video's clips.json/clips.csv as the next clip number. Pass hook to use your
+    own on-screen hook text."""
+    if niche not in list_profiles():
+        raise ToolError(f"Unknown niche {niche!r}. Available: {', '.join(list_profiles())}.")
+    return await _run(
+        ctx,
+        pipeline.run_cut_clip,
+        source,
+        start,
+        end,
+        duration,
+        _cfg(),
+        niche=niche,
+        hook=hook,
+        platforms=_platforms(platforms),
+        output_dir=output_dir,
+    )
 
 
 @mcp.tool()

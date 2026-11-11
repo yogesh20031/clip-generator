@@ -85,6 +85,27 @@ def cmd_score(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_cut(args: argparse.Namespace) -> int:
+    record = _with_bar(
+        "cut_clip",
+        pipeline.run_cut_clip,
+        args.source,
+        args.start,
+        args.end,
+        args.duration,
+        get_config(),
+        niche=args.niche,
+        hook=args.hook,
+        platforms=[Platform(p) for p in args.platforms] if args.platforms else None,
+        output_dir=args.output_dir,
+    )
+    console.print(
+        f"[bold]{record.path}[/]  {record.start:.0f}-{record.end:.0f}s  score {record.score:.0f}  hook: {record.hook}"
+    )
+    print(record.path)
+    return 0
+
+
 def cmd_list(args: argparse.Namespace) -> int:
     cfg = get_config()
     root = pipeline._with_output_dir(cfg, args.output_dir).output_root
@@ -128,6 +149,17 @@ def build_parser() -> argparse.ArgumentParser:
     p = sub.add_parser("score", help="ranked moments without rendering")
     common(p)
     p.set_defaults(func=cmd_score)
+
+    p = sub.add_parser("cut", help="cut one clip from an exact range (seconds or mm:ss)")
+    p.add_argument("source")
+    p.add_argument("--start", required=True)
+    p.add_argument("--end")
+    p.add_argument("--duration")
+    p.add_argument("--niche", default="generic", choices=list_profiles())
+    p.add_argument("--hook", help="your own on-screen hook text")
+    p.add_argument("--platforms", nargs="*", choices=[pl.value for pl in ALL_PLATFORMS])
+    p.add_argument("--output-dir")
+    p.set_defaults(func=cmd_cut)
 
     p = sub.add_parser("list", help="show saved clips")
     p.add_argument("--output-dir")

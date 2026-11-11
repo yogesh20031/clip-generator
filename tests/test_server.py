@@ -15,6 +15,7 @@ EXPECTED_TOOLS = {
     "generate_metadata",
     "set_clip_metadata",
     "list_outputs",
+    "cut_clip",
 }
 
 
@@ -98,3 +99,25 @@ async def test_end_to_end_clip_video(client: Client, sample_video: Path, test_co
     listed = await client.call_tool("list_outputs", {})
     first = listed.structured_content["result"][0]["clips"][0]
     assert first["metadata"]["tiktok"]["title"] == "My title" and first["hook"] == "WAIT"
+
+
+@pytest.mark.anyio
+async def test_cut_clip_exact_range(client: Client, sample_video: Path) -> None:
+    res = await client.call_tool(
+        "cut_clip",
+        {"source": str(sample_video), "start": "0:08", "duration": "12", "niche": "mrbeast", "hook": "MY HOOK"},
+    )
+    assert not res.is_error, res.content[0].text
+    data = res.structured_content
+    assert data["start"] == 8.0 and data["end"] == 20.0 and data["hook"] == "MY HOOK"
+    assert Path(data["path"]).exists() and Path(data["path"]).with_suffix(".txt").exists()
+    assert data["reasons"][0].startswith("manual cut")
+
+
+def test_parse_timestamp() -> None:
+    from viral_clipper.pipeline import parse_timestamp
+
+    assert parse_timestamp("17:42") == 1062.0
+    assert parse_timestamp("1:20") == 80.0
+    assert parse_timestamp("1:02:03") == 3723.0
+    assert parse_timestamp("80.5") == 80.5 and parse_timestamp(80) == 80.0
