@@ -1,0 +1,436 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>How Viral Clipper Works</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,800&family=Atkinson+Hyperlegible+Next:wght@400;500;600&family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+/* Layout: one reading column like an editor's notebook; figures break out wider, timecodes in mono. */
+:root {
+  --bg: #f2f4f7;
+  --paper: #ffffff;
+  --ink: #17202b;
+  --muted: #5b6676;
+  --line: #d7dde6;
+  --accent: #ad500b;      /* edit-tape orange: the thing that gets kept (dark enough for small text on white) */
+  --accent-soft: #fbe7d6;
+  --teal: #12625b;        /* "your Mac" */
+  --teal-soft: #d9efed;
+  --violet: #5636ad;      /* "Claude" */
+  --violet-soft: #e8e2fa;
+  --cut: #b8c0cc;         /* footage that gets cut out */
+  --display: "Bricolage Grotesque", "Avenir Next", "Segoe UI", sans-serif;
+  --body: "Atkinson Hyperlegible Next", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #12161c; --paper: #1a2029; --ink: #e8ecf2; --muted: #9aa5b5; --line: #2c3542;
+    --accent: #f0904a; --accent-soft: #3a2a1d; --teal: #4cc2b8; --teal-soft: #16312f;
+    --violet: #a993f2; --violet-soft: #2a2442; --cut: #3d4756; color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #12161c; --paper: #1a2029; --ink: #e8ecf2; --muted: #9aa5b5; --line: #2c3542;
+  --accent: #f0904a; --accent-soft: #3a2a1d; --teal: #4cc2b8; --teal-soft: #16312f;
+  --violet: #a993f2; --violet-soft: #2a2442; --cut: #3d4756; color-scheme: dark;
+}
+
+* { box-sizing: border-box; }
+body {
+  background: var(--bg); color: var(--ink);
+  font: 16px/1.65 var(--body);
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  padding-block: 32px 64px;
+}
+.wrap { max-width: 920px; margin: 0 auto; display: grid; gap: 56px; }
+.prose { max-width: 66ch; }
+h1, h2, h3 { font-family: var(--display); text-wrap: balance; line-height: 1.15; margin: 0; }
+h1 { font-size: clamp(2.1rem, 6vw, 3.4rem); font-weight: 800; letter-spacing: -0.02em; }
+h2 { font-size: clamp(1.45rem, 3.6vw, 1.9rem); font-weight: 800; }
+h3 { font-size: 1.1rem; font-weight: 600; }
+p { margin: 0; }
+section { display: grid; gap: 18px; }
+.eyebrow { font: 600 0.75rem/1 var(--mono); letter-spacing: 0.12em; text-transform: uppercase; color: var(--accent); }
+.lede { font-size: 1.15rem; color: var(--muted); max-width: 60ch; }
+code, .tc { font-family: var(--mono); font-size: 0.88em; }
+code { background: var(--paper); border: 1px solid var(--line); border-radius: 4px; padding: 1px 5px; }
+.muted { color: var(--muted); }
+figure { margin: 0; display: grid; gap: 10px; }
+figcaption { font-size: 0.85rem; color: var(--muted); }
+.panel { background: var(--paper); border: 1px solid var(--line); border-radius: 10px; padding: 20px; }
+.scroll { overflow-x: auto; }
+svg text { font-family: var(--body); }
+svg .mono { font-family: var(--mono); }
+
+/* Figure 1: the journey */
+.journey { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 10px; counter-reset: step; }
+.stop { background: var(--paper); border: 1px solid var(--line); border-radius: 10px; padding: 14px; display: grid; gap: 6px; align-content: start; position: relative; min-width: 0; }
+.stop::before { counter-increment: step; content: counter(step); font: 600 0.75rem var(--mono); color: var(--accent); }
+.stop b { font-family: var(--display); font-size: 1.05rem; }
+.stop span { font-size: 0.85rem; color: var(--muted); line-height: 1.45; }
+.stop.claude { border-color: var(--violet); background: var(--violet-soft); }
+.stop.claude::before { color: var(--violet); }
+
+/* Step detail rows */
+.steps { display: grid; gap: 14px; }
+.step { display: grid; grid-template-columns: 52px 1fr; gap: 16px; align-items: start; }
+.num { font: 800 1.6rem/1 var(--display); color: var(--accent); padding-top: 2px; }
+.step > div { display: grid; gap: 6px; min-width: 0; }
+.tools { display: flex; flex-wrap: wrap; gap: 6px; }
+.tool { font: 500 0.78rem var(--mono); background: var(--teal-soft); color: var(--teal); border-radius: 999px; padding: 2px 10px; }
+.tool.c { background: var(--violet-soft); color: var(--violet); }
+
+/* Who does what */
+.lanes { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 14px; }
+.lane { border-radius: 10px; padding: 18px; display: grid; gap: 10px; align-content: start; min-width: 0; }
+.lane.mac { background: var(--teal-soft); }
+.lane.ai { background: var(--violet-soft); }
+.lane h3 { color: var(--teal); }
+.lane.ai h3 { color: var(--violet); }
+.lane ul { margin: 0; padding-left: 1.1em; display: grid; gap: 6px; }
+
+/* Repo map */
+.repo { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 10px; }
+.folder { background: var(--paper); border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px; display: grid; gap: 4px; min-width: 0; }
+.folder .path { font: 600 0.9rem var(--mono); color: var(--accent); }
+.folder .files { font: 0.78rem/1.5 var(--mono); color: var(--muted); overflow-wrap: anywhere; }
+
+/* Output folder + commands */
+pre { margin: 0; background: var(--paper); border: 1px solid var(--line); border-radius: 10px; padding: 16px; overflow-x: auto; font: 0.85rem/1.6 var(--mono); }
+pre .k { color: var(--accent); }
+pre .d { color: var(--muted); }
+.tag { display: inline-block; font: 600 0.7rem var(--mono); letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); border: 1px solid var(--line); border-radius: 4px; padding: 1px 6px; }
+
+@media (max-width: 520px) {
+  .step { grid-template-columns: 34px 1fr; gap: 10px; }
+  .num { font-size: 1.3rem; }
+}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header style="display:grid;gap:14px" class="prose">
+    <h1>From a YouTube link to a finished reel</h1>
+    <p class="lede">You paste a link. About five minutes later there's a vertical, captioned clip in your folder, along with its title, hook and hashtags for each platform. This page walks through every step: what happens, which tool does it, and where Claude comes in.</p>
+  </header>
+
+  <!-- FIGURE 1 -->
+  <section>
+    <span class="eyebrow">Figure 1 · the whole journey</span>
+    <h2>Six stops, in order</h2>
+    <div class="journey" role="list">
+      <div class="stop" role="listitem"><b>Get the video</b><span>Download it from the link into your folder.</span></div>
+      <div class="stop" role="listitem"><b>Listen &amp; watch</b><span>Write down every word, plus how loud and how busy each moment is.</span></div>
+      <div class="stop" role="listitem"><b>Find the story</b><span>Split the video into stories and pick the best complete one.</span></div>
+      <div class="stop" role="listitem"><b>Cut &amp; frame</b><span>Cut the pieces, turn 16:9 into 9:16, add captions and a hook card.</span></div>
+      <div class="stop" role="listitem"><b>Write the words</b><span>Title, hook, description and hashtags for each platform.</span></div>
+      <div class="stop claude" role="listitem"><b>Claude checks</b><span>Looks at the frames and transcript, fixes the pick, rewrites the copy.</span></div>
+    </div>
+    <p class="muted prose">Stops 1 to 5 are the repo's code running on your Mac. Stop 6 is Claude, in this chat.</p>
+  </section>
+
+  <!-- STEP DETAIL -->
+  <section>
+    <span class="eyebrow">Each stop, in plain words</span>
+    <h2>What actually happens</h2>
+    <div class="steps">
+
+      <div class="step"><span class="num">1</span><div>
+        <h3>Get the video</h3>
+        <p>The link goes to <b>yt-dlp</b>, which downloads the best-quality version as <code>source.mp4</code> in a new folder named after the video. <b>ffprobe</b> then reads its length, size and frame rate. A file already on your Mac works too, and gets no download.</p>
+        <div class="tools"><span class="tool">yt-dlp</span><span class="tool">ffprobe</span><span class="tool">ingest/</span></div>
+      </div></div>
+
+      <div class="step"><span class="num">2</span><div>
+        <h3>Listen &amp; watch</h3>
+        <p>Four checks run over the whole video. The results are saved in <code>analysis.json</code>, so a second run on the same video skips this step.</p>
+        <p><b>Words:</b> Whisper turns the speech into text with a timestamp on every word. On your M4 it runs on the GPU through mlx-whisper. Lines that Whisper made up over music or engine noise get thrown out. <b>Sound:</b> loudness is measured 4 times a second, to spot shouts, laughs and bangs. <b>Scenes:</b> PySceneDetect marks every camera cut. <b>Motion:</b> OpenCV compares frames 4 times a second to see how much is moving, and where on screen.</p>
+        <div class="tools"><span class="tool">mlx-whisper</span><span class="tool">ffmpeg</span><span class="tool">PySceneDetect</span><span class="tool">OpenCV</span><span class="tool">analysis/</span></div>
+      </div></div>
+
+      <div class="step"><span class="num">3</span><div>
+        <h3>Find the story</h3>
+        <p>The video is cut into <b>stories</b>, meaning one challenge, one mission or one round each. Story breaks are found from phrases like "for our next challenge", a change of topic or of names, long pauses, and camera cuts. Inside each story the code labels the parts: <b>who</b>, <b>what's at stake</b>, the <b>payoff</b> (the result) and the <b>reaction</b>. Then it builds the edit: keep what a stranger needs to follow along, cut the filler and any pause over half a second.</p>
+        <p>Every edit gets a score from the niche profile (<code>profiles/gta6.yaml</code>, <code>profiles/mrbeast.yaml</code>). The profile says what counts in that niche: crashes and chases for GTA, money and wins for MrBeast. The best edits that don't overlap become the clips. A video with no talking, like raw gameplay, gets one continuous action stretch instead.</p>
+        <div class="tools"><span class="tool">scoring/stories.py</span><span class="tool">scoring/edits.py</span><span class="tool">scoring/scorer.py</span></div>
+      </div></div>
+
+      <div class="step"><span class="num">4</span><div>
+        <h3>Cut &amp; frame</h3>
+        <p><b>ffmpeg</b> cuts each kept piece and crops the wide frame to a vertical one. The crop follows faces, or the moving car, from moment to moment. Then it joins the pieces with tiny 15 ms fades so there are no clicks at the cuts. It burns in big word-by-word captions, shows the hook card for the first 3.5 seconds, and sets the loudness to −14 LUFS, the level the platforms play at. A thumbnail is saved too.</p>
+        <div class="tools"><span class="tool">ffmpeg</span><span class="tool">Pillow</span><span class="tool">render/</span></div>
+      </div></div>
+
+      <div class="step"><span class="num">5</span><div>
+        <h3>Write the words</h3>
+        <p>Templates from the niche profile fill in a hook, title, description and hashtags for YouTube Shorts, TikTok, Instagram Reels and Facebook Reels, each within that platform's limits. If the source is Creative Commons, a credit line for the creator goes at the end. Everything is written to <code>clip_01.txt</code> so you can copy and paste it.</p>
+        <div class="tools"><span class="tool">metadata/templates.py</span><span class="tool">metadata/platforms.py</span></div>
+      </div></div>
+
+      <div class="step"><span class="num">6</span><div>
+        <h3>Claude checks it</h3>
+        <p>The automatic pick is a good first draft, but not always the best clip. Claude reads the story map, looks at small grids of frames from the video, and either confirms the pick or cuts a better one with <code>render_edit</code>. Then it writes the hook and captions about what's actually on screen, using <code>set_clip_metadata</code>.</p>
+        <div class="tools"><span class="tool c">story_map</span><span class="tool c">render_edit</span><span class="tool c">set_clip_metadata</span></div>
+      </div></div>
+
+    </div>
+  </section>
+
+  <!-- FIGURE 2: signals -->
+  <section>
+    <span class="eyebrow">Figure 2 · what the computer hears and sees</span>
+    <h2>Four tracks over the same timeline</h2>
+    <p class="prose">After step 2, every second of the video has four readings. Peaks that line up across the tracks are where something happened.</p>
+    <figure>
+      <div class="panel scroll">
+        <svg viewBox="0 0 860 300" width="100%" style="min-width:620px" role="img" aria-label="Four stacked tracks: words, loudness, motion and scene cuts over two minutes, with a payoff where loudness and motion peak together">
+          <defs>
+            <style>
+              .lbl { fill: var(--muted); font-size: 13px; font-weight: 600; }
+              .axis { stroke: var(--line); stroke-width: 1; }
+              .wordbox { fill: var(--accent-soft); stroke: var(--accent); stroke-width: 1; }
+              .wordtx { fill: var(--ink); font-size: 11px; }
+              .loud { fill: none; stroke: var(--accent); stroke-width: 2; }
+              .move { fill: none; stroke: var(--teal); stroke-width: 2; }
+              .cutm { stroke: var(--violet); stroke-width: 2; }
+              .hi { fill: var(--accent); opacity: 0.08; }
+              .tick { fill: var(--muted); font-size: 11px; }
+              .callout { fill: var(--accent); font-size: 12px; font-weight: 600; }
+            </style>
+          </defs>
+          <!-- highlight: the payoff -->
+          <rect class="hi" x="600" y="10" width="90" height="250" rx="4"/>
+          <text class="callout" x="645" y="282" text-anchor="middle">payoff</text>
+
+          <!-- track labels -->
+          <text class="lbl" x="0" y="44">Words</text>
+          <text class="lbl" x="0" y="112">Loudness</text>
+          <text class="lbl" x="0" y="180">Motion</text>
+          <text class="lbl" x="0" y="238">Camera cuts</text>
+          <line class="axis" x1="110" y1="64" x2="850" y2="64"/>
+          <line class="axis" x1="110" y1="132" x2="850" y2="132"/>
+          <line class="axis" x1="110" y1="200" x2="850" y2="200"/>
+          <line class="axis" x1="110" y1="250" x2="850" y2="250"/>
+
+          <!-- words -->
+          <rect class="wordbox" x="120" y="28" width="150" height="26" rx="4"/><text class="wordtx" x="128" y="45">"If you score, you win…"</text>
+          <rect class="wordbox" x="290" y="28" width="120" height="26" rx="4"/><text class="wordtx" x="298" y="45">"…one million dollars"</text>
+          <rect class="wordbox" x="440" y="28" width="70" height="26" rx="4"/><text class="wordtx" x="448" y="45">"okay"</text>
+          <rect class="wordbox" x="605" y="28" width="80" height="26" rx="4"/><text class="wordtx" x="613" y="45">"HE DID IT!"</text>
+          <rect class="wordbox" x="700" y="28" width="120" height="26" rx="4"/><text class="wordtx" x="708" y="45">"that's insane"</text>
+
+          <!-- loudness -->
+          <polyline class="loud" points="110,122 160,118 210,121 260,116 310,119 360,121 410,123 460,124 510,122 560,118 600,110 620,82 640,76 660,84 690,98 720,108 770,116 820,120 850,121"/>
+          <!-- motion -->
+          <polyline class="move" points="110,192 160,190 210,191 260,189 310,192 360,190 410,191 460,186 510,180 560,170 600,150 625,146 650,152 690,170 730,184 780,189 850,191"/>
+          <!-- cuts -->
+          <line class="cutm" x1="200" y1="236" x2="200" y2="250"/>
+          <line class="cutm" x1="455" y1="236" x2="455" y2="250"/>
+          <line class="cutm" x1="560" y1="236" x2="560" y2="250"/>
+          <line class="cutm" x1="610" y1="236" x2="610" y2="250"/>
+          <line class="cutm" x1="640" y1="236" x2="640" y2="250"/>
+          <line class="cutm" x1="760" y1="236" x2="760" y2="250"/>
+
+          <!-- time ticks -->
+          <text class="tick mono" x="110" y="270">0:00</text>
+          <text class="tick mono" x="355" y="270">0:40</text>
+          <text class="tick mono" x="545" y="270">1:20</text>
+          <text class="tick mono" x="815" y="270">2:00</text>
+        </svg>
+      </div>
+      <figcaption>Simplified example. The real readings are much denser: 4 per second, plus a timestamp on every word.</figcaption>
+    </figure>
+  </section>
+
+  <!-- FIGURE 3: story → clip -->
+  <section>
+    <span class="eyebrow">Figure 3 · one story, one reel</span>
+    <h2>Keep the story, cut the waiting</h2>
+    <p class="prose">This is the rule you set: a reel holds one complete story and never stops in the middle. A random 60-second window usually misses the setup or the result. A story edit keeps every part a stranger needs and drops the filler between them. Real example: the Ronaldo $1M challenge became <code>clip_02</code>.</p>
+    <figure>
+      <div class="panel scroll">
+        <svg viewBox="0 0 860 250" width="100%" style="min-width:620px" role="img" aria-label="A 3.5 minute story with who, stakes, filler, the shot, result and reaction; the kept parts join into a 60 second clip">
+          <defs>
+            <style>
+              .keep { fill: var(--accent); }
+              .drop { fill: var(--cut); }
+              .t { fill: var(--ink); font-size: 12px; font-weight: 600; }
+              .tm { fill: var(--muted); font-size: 11px; }
+              .row { fill: var(--muted); font-size: 13px; font-weight: 600; }
+              .join { stroke: var(--muted); stroke-width: 1; stroke-dasharray: 3 4; fill: none; }
+              .jc { fill: var(--paper); stroke: var(--ink); stroke-width: 1.5; }
+            </style>
+          </defs>
+          <text class="row" x="0" y="20">The story in the long video · 17:39 → 21:06 (about 3.5 min)</text>
+          <rect class="keep" x="0"   y="34" width="70"  height="40" rx="3"/><text class="t" x="35"  y="94" text-anchor="middle">Who</text>
+          <rect class="keep" x="74"  y="34" width="70"  height="40" rx="3"/><text class="t" x="109" y="94" text-anchor="middle">$1M stakes</text>
+          <rect class="drop" x="148" y="34" width="150" height="40" rx="3"/><text class="tm" x="223" y="94" text-anchor="middle">small talk</text>
+          <rect class="keep" x="302" y="34" width="60"  height="40" rx="3"/><text class="t" x="332" y="94" text-anchor="middle">Rules</text>
+          <rect class="drop" x="366" y="34" width="190" height="40" rx="3"/><text class="tm" x="461" y="94" text-anchor="middle">walking, waiting, pauses</text>
+          <rect class="keep" x="560" y="34" width="110" height="40" rx="3"/><text class="t" x="615" y="94" text-anchor="middle">The shots</text>
+          <rect class="keep" x="674" y="34" width="70"  height="40" rx="3"/><text class="t" x="709" y="94" text-anchor="middle">Result</text>
+          <rect class="keep" x="748" y="34" width="60"  height="40" rx="3"/><text class="t" x="778" y="94" text-anchor="middle">Reaction</text>
+          <rect class="drop" x="812" y="34" width="48"  height="40" rx="3"/><text class="tm" x="836" y="94" text-anchor="middle">next</text>
+
+          <path class="join" d="M35 74 C 35 140, 160 140, 160 168"/>
+          <path class="join" d="M109 74 C 109 140, 230 140, 230 168"/>
+          <path class="join" d="M332 74 C 332 140, 290 140, 290 168"/>
+          <path class="join" d="M615 74 C 615 140, 380 140, 380 168"/>
+          <path class="join" d="M709 74 C 709 140, 475 140, 475 168"/>
+          <path class="join" d="M778 74 C 778 140, 540 140, 540 168"/>
+
+          <text class="row" x="0" y="160">The reel · about 60 s</text>
+          <rect class="keep" x="125" y="168" width="70"  height="40" rx="3"/>
+          <rect class="keep" x="195" y="168" width="70"  height="40" rx="3"/>
+          <rect class="keep" x="265" y="168" width="60"  height="40" rx="3"/>
+          <rect class="keep" x="325" y="168" width="110" height="40" rx="3"/>
+          <rect class="keep" x="435" y="168" width="70"  height="40" rx="3"/>
+          <rect class="keep" x="505" y="168" width="60"  height="40" rx="3"/>
+          <circle class="jc" cx="195" cy="188" r="5"/><circle class="jc" cx="265" cy="188" r="5"/>
+          <circle class="jc" cx="325" cy="188" r="5"/><circle class="jc" cx="435" cy="188" r="5"/>
+          <circle class="jc" cx="505" cy="188" r="5"/>
+          <text class="tm" x="580" y="186">○ = jump cut</text>
+          <text class="tm" x="580" y="202">ends on the reaction, never mid-story</text>
+          <text class="tm" x="125" y="232">The hook card on top: "Khalid vs Ronaldo for $1M"</text>
+        </svg>
+      </div>
+      <figcaption>Orange is kept, grey is cut. The order never changes, only the waiting goes.</figcaption>
+    </figure>
+  </section>
+
+  <!-- FIGURE 4: crop -->
+  <section>
+    <span class="eyebrow">Figure 4 · wide to tall</span>
+    <h2>The vertical frame follows the action</h2>
+    <p class="prose">YouTube videos are wide (16:9) and reels are tall (9:16), so about two-thirds of each frame has to go. The crop window slides left and right to stay on whatever matters: a face when someone is talking, or the moving car in gameplay.</p>
+    <figure>
+      <div class="panel scroll">
+        <svg viewBox="0 0 860 230" width="100%" style="min-width:560px" role="img" aria-label="Three wide frames over time; a tall crop window moves from left to centre to right following the car">
+          <defs>
+            <style>
+              .wide { fill: var(--bg); stroke: var(--line); stroke-width: 1.5; }
+              .win { fill: var(--accent); fill-opacity: 0.14; stroke: var(--accent); stroke-width: 2.5; }
+              .car { fill: var(--teal); }
+              .cap { fill: var(--muted); font-size: 12px; }
+              .arrow { stroke: var(--muted); stroke-width: 1.5; fill: none; marker-end: url(#ah); }
+              .ahp { fill: var(--muted); }
+            </style>
+            <marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path class="ahp" d="M0 0 L10 5 L0 10 z"/></marker>
+          </defs>
+          <!-- frame 1 -->
+          <rect class="wide" x="10" y="20" width="240" height="135" rx="4"/>
+          <rect class="win" x="30" y="20" width="76" height="135"/>
+          <rect class="car" x="52" y="100" width="34" height="16" rx="4"/>
+          <text class="cap" x="130" y="180" text-anchor="middle">car starts left</text>
+          <!-- frame 2 -->
+          <rect class="wide" x="310" y="20" width="240" height="135" rx="4"/>
+          <rect class="win" x="392" y="20" width="76" height="135"/>
+          <rect class="car" x="413" y="70" width="34" height="16" rx="4" transform="rotate(-25 430 78)"/>
+          <text class="cap" x="430" y="180" text-anchor="middle">launches off the ramp</text>
+          <!-- frame 3 -->
+          <rect class="wide" x="610" y="20" width="240" height="135" rx="4"/>
+          <rect class="win" x="752" y="20" width="76" height="135"/>
+          <rect class="car" x="773" y="110" width="34" height="16" rx="4" transform="rotate(160 790 118)"/>
+          <text class="cap" x="730" y="180" text-anchor="middle">lands right · window follows</text>
+          <path class="arrow" d="M258 88 L302 88"/>
+          <path class="arrow" d="M558 88 L602 88"/>
+          <text class="cap" x="430" y="215" text-anchor="middle">orange = the 1080 × 1920 part that ends up in your reel</text>
+        </svg>
+      </div>
+    </figure>
+  </section>
+
+  <!-- FIGURE 5: who does what -->
+  <section>
+    <span class="eyebrow">Figure 5 · where Claude fits</span>
+    <h2>Your Mac does the heavy lifting. Claude does the judgement.</h2>
+    <div class="lanes">
+      <div class="lane mac">
+        <h3>Your Mac (the repo's code)</h3>
+        <ul>
+          <li>Downloads the video</li>
+          <li>Runs Whisper for the transcript, on the M4's GPU</li>
+          <li>Measures loudness, motion and camera cuts</li>
+          <li>Finds the stories and scores them</li>
+          <li>Cuts, crops, captions and exports the MP4</li>
+          <li>Fills in template titles and hashtags</li>
+        </ul>
+        <p class="muted" style="font-size:.9rem">No API key and no upload. The video file never leaves your computer.</p>
+      </div>
+      <div class="lane ai">
+        <h3>Claude (in this chat)</h3>
+        <ul>
+          <li><b>Built the repo</b> and fixes it when a clip comes out wrong. For example: made-up captions on gameplay, or GTA 5 labelled as GTA 6.</li>
+          <li><b>Runs it</b> when you paste a link, through the terminal command or the MCP tools.</li>
+          <li><b>Checks the pick:</b> reads the story map and looks at small frame grids, then chooses the complete story.</li>
+          <li><b>Writes the words:</b> a hook and captions about what's really in the clip.</li>
+        </ul>
+        <p class="muted" style="font-size:.9rem">Claude sees text (the transcript and story map) and the small preview images it makes. It never gets the full video.</p>
+      </div>
+    </div>
+    <div class="panel" style="display:grid;gap:8px">
+      <h3>The two ways Claude can drive the repo</h3>
+      <p><b>Terminal commands (what happens today):</b> Claude runs <code>uv run viral-clipper …</code> commands for you.</p>
+      <p><b>MCP tools (after you register the server once):</b> Claude calls the tools directly: <code>clip_video</code>, <code>story_map</code>, <code>render_edit</code>, <code>cut_clip</code>, <code>set_clip_metadata</code>, <code>list_outputs</code>. MCP is the standard way to give Claude new tools. <code>server.py</code> is the file that exposes them.</p>
+    </div>
+  </section>
+
+  <!-- FIGURE 6: repo map -->
+  <section>
+    <span class="eyebrow">Figure 6 · the repo</span>
+    <h2>Which folder does which job</h2>
+    <p class="prose">Everything is under <code>src/viral_clipper/</code>. Each folder is one stop from Figure 1.</p>
+    <div class="repo">
+      <div class="folder"><span class="path">ingest/</span><span>Stop 1: get the video</span><span class="files">youtube.py · source.py · ffprobe.py</span></div>
+      <div class="folder"><span class="path">analysis/</span><span>Stop 2: listen &amp; watch</span><span class="files">transcribe.py · asr_mlx.py · audio.py · scenes.py · motion.py · events.py · analyze.py</span></div>
+      <div class="folder"><span class="path">scoring/</span><span>Stop 3: find the story</span><span class="files">stories.py · edits.py · scorer.py · candidates.py · signals.py</span></div>
+      <div class="folder"><span class="path">render/</span><span>Stop 4: cut &amp; frame</span><span class="files">clip.py · crop.py · captions.py · hook_overlay.py · ffmpeg.py · thumbnail.py</span></div>
+      <div class="folder"><span class="path">metadata/</span><span>Stop 5: write the words and the files</span><span class="files">templates.py · platforms.py · outputs.py · llm.py</span></div>
+      <div class="folder"><span class="path">pipeline.py</span><span>Runs the stops in order</span><span class="files">cli.py = terminal commands · server.py = MCP tools for Claude</span></div>
+      <div class="folder"><span class="path">profiles/*.yaml</span><span>The taste of each niche</span><span class="files">gta6.yaml · mrbeast.yaml · generic.yaml: weights, keywords, hook and title templates, hashtags</span></div>
+      <div class="folder"><span class="path">config.yaml</span><span>Settings</span><span class="files">clip length, story mode, caption style, loudness, output folder</span></div>
+      <div class="folder"><span class="path">tests/ · docs/</span><span>Checks and notes</span><span class="files">38 tests · research.md (why clips are cut this way) · architecture.md</span></div>
+    </div>
+  </section>
+
+  <!-- FIGURE 7: what you get + commands -->
+  <section>
+    <span class="eyebrow">Figure 7 · what lands in your folder</span>
+    <h2>One folder per video</h2>
+    <figure>
+<pre><span class="d">~/Documents/Desktop/viral-clipper/</span><span class="k">gta-5-crazy-mega-ramp…/</span>
+├── <span class="k">clip_01.mp4</span>        <span class="d">← the reel: 1080×1920, captions + hook card, −14 LUFS</span>
+├── <span class="k">clip_01.txt</span>        <span class="d">← copy-paste sheet: hook, titles, descriptions, hashtags per platform</span>
+├── thumbnails/        <span class="d">← cover image + 2 alternatives</span>
+├── captions/          <span class="d">← .srt subtitle file</span>
+├── clips.json / .csv  <span class="d">← every clip's details in one list</span>
+├── source.mp4         <span class="d">← the downloaded original (safe to delete when done)</span>
+└── analysis.json      <span class="d">← saved readings, so the next run skips step 2</span></pre>
+    </figure>
+
+    <h3 style="margin-top:12px">The commands behind it</h3>
+<pre><span class="d"># automatic: download, analyze, and cut the best N clips</span>
+<span class="k">uv run viral-clipper clip</span> "https://youtube.com/watch?v=…" --niche gta6 --num-clips 1
+
+<span class="d"># list the stories with numbered lines, so you can choose one yourself</span>
+<span class="k">uv run viral-clipper stories</span> "https://youtube.com/watch?v=…" --niche gta6
+
+<span class="d"># cut exactly the pieces you chose (seconds or mm:ss), with your own hook</span>
+<span class="k">uv run viral-clipper edit</span> "https://youtube.com/watch?v=…" --seg 147.5-166.7 --hook "Rocket car vs the BIGGEST mega ramp"</pre>
+    <p class="muted prose">You don't have to type these. Paste a link in the chat and Claude runs them.</p>
+  </section>
+
+  <footer class="muted prose" style="font-size:.85rem">
+    <span class="tag">Rights</span>&nbsp; Clips of someone else's video are theirs. Creative Commons sources get the credit line automatically. For anything else, add your own voice or reaction before posting: the platforms show plain re-uploads to fewer people.
+  </footer>
+</div>
+
+</body>
+</html>

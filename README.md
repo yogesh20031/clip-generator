@@ -1,4 +1,4 @@
-# viral-clipper
+# clip-generator (viral-clipper)
 
 A local MCP server for Claude Code that turns a long video (YouTube URL or local file) into the 10
 most viral-worthy vertical clips, each with burned-in word-by-word captions, an opening hook, normalized
@@ -14,6 +14,9 @@ clip_video("https://www.youtube.com/watch?v=...", niche="mrbeast")
     + thumbnails/, captions/*.srt, clips.json, clips.csv
 ```
 
+New here? [`docs/how-it-works.html`](docs/how-it-works.html) is a one-page visual explainer of the whole
+pipeline; open it in a browser.
+
 ## Requirements
 
 - **FFmpeg** (`ffmpeg` and `ffprobe` on PATH). macOS: `brew install ffmpeg`. Windows: `winget install Gyan.FFmpeg`.
@@ -26,23 +29,17 @@ clip_video("https://www.youtube.com/watch?v=...", niche="mrbeast")
 ## Install
 
 ```bash
-git clone <this repo> viral-clipper
-cd viral-clipper
+git clone https://github.com/yogesh20031/clip-generator.git
+cd clip-generator
 uv sync --extra mlx        # macOS Apple Silicon (mlx-whisper)
 # uv sync                  # Windows / Linux / Intel Mac (faster-whisper)
-uv run pytest              # ~20 s, synthesizes its own test video
+uv run pytest              # ~35 s, synthesizes its own test video
 ```
 
 ## Register in Claude Code
 
 ```bash
 claude mcp add --scope user viral-clipper -- uv --directory /ABSOLUTE/PATH/TO/viral-clipper run viral-clipper
-```
-
-On this machine that is:
-
-```bash
-claude mcp add --scope user viral-clipper -- uv --directory /Users/yogesh/Documents/Project/viral-clipper run viral-clipper
 ```
 
 Windows (PowerShell):
@@ -141,6 +138,27 @@ published clipping systems work (HIVE, OpusClip's Repurpose-10K, Adobe PodReels;
    - Captions are remapped to the clip's timeline.
    - Two-pass `loudnorm` over the joined audio.
 
+### Gameplay with no commentary
+
+Story mode needs speech. For uncommentated gameplay (a GTA stunt run, a race) two safeguards kick in:
+
+- **Whisper hallucination filter.** Over game audio Whisper invents lines ("Thanks for watching!",
+  foreign-script text, low-confidence rambling). `drop_hallucinations` removes stock phrases,
+  wrong-script text and anything below `whisper.min_word_prob` (0.4) that isn't near confident speech.
+  The raw transcript stays in the cache, so changing the threshold doesn't need a re-transcribe.
+- **Window mode fallback.** When a video has fewer than `clip.min_speech_wpm` (20) spoken words per
+  minute, it is treated as uncommentated and cut into continuous action windows instead of story edits.
+  For these, pick one complete run by looking at the frames and write the hook yourself
+  (`cut_clip(..., hook="Rocket car vs the BIGGEST mega ramp")`): a manual hook becomes the premise card
+  and the title.
+
+### Credit lines
+
+The source's channel and licence come from yt-dlp. Every description gets a credit line:
+`Gameplay: <channel> (CC BY)` for Creative Commons videos, `Original video: <channel>` otherwise. Niche
+profiles can also swap wording per source: the `gta6` profile's `source_variants` say "GTA 5" instead of
+"GTA 6" when the source is a GTA 5 video.
+
 `clip_NN.txt` lists the premise, the stakes line, where the story sits in the source and the full edit
 list. `clip.mode: window` in `config.yaml` brings back the old single-window behaviour.
 
@@ -207,6 +225,11 @@ are the easiest way) and keep `whisper.device: auto`; the server picks `large-v3
 - YouTube does not monetize graphic game violence in the first 7 seconds; the `gta6` profile penalizes it.
 - Clips run 30 s to 1:10 by default. Note that a YouTube Short over one minute with a Content ID claim is
   blocked globally, so pass `max_len=60` when clipping third-party footage for Shorts.
+
+## Posting the clips
+
+viral-clipper only makes the clips. Posting is a separate local tool, `video-uploader`, which reads
+`clips.json`, keeps your logins in its own Chrome profile and never publishes until you say "share".
 
 ## Tests
 
