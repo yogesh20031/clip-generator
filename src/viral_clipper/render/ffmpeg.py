@@ -60,23 +60,46 @@ def run_ffmpeg(args: list[str], duration: float, progress: ProgressFn | None = N
         )
 
 
-def measure_loudness(src: Path, start: float, end: float, clip_cfg: ClipConfig) -> dict[str, str] | None:
-    """loudnorm pass 1. Returns the measured values or None if the segment has no usable audio."""
+def segment_inputs(src: Path, parts: list[tuple[float, float]]) -> list[str]:
+    """One accurately-seeked input per segment, so every segment's timestamps start at 0."""
+    args: list[str] = []
+    for a, b in parts:
+        args += ["-ss", f"{a:.3f}", "-to", f"{b:.3f}", "-i", str(src)]
+    return args
+
+
+def audio_concat_filter(n: int, durations: list[float], fade_s: float = 0.015) -> str:
+    """Trim each segment's audio to its exact length, fade the edges (no clicks at jump cuts), concat."""
+    chains = []
+    for i, dur in enumerate(durations):
+        fade = min(fade_s, dur / 4)
+        chains.append(
+            f"[{i}:a]aformat=sample_rates=48000:channel_layouts=stereo,apad,atrim=duration={dur:.4f},"
+            f"asetpts=PTS-STARTPTS,afade=t=in:d={fade:.3f},afade=t=out:st={max(0.0, dur - fade):.4f}:d={fade:.3f}[a{i}]"
+        )
+    if n == 1:
+        return chains[0].replace("[a0]", "[acat]")
+    chains.append("".join(f"[a{i}]" for i in range(n)) + f"concat=n={n}:v=0:a=1[acat]")
+    return ";".join(chains)
+
+
+def measure_loudness(
+    src: Path, parts: list[tuple[float, float]], durations: list[float], clip_cfg: ClipConfig
+) -> dict[str, str] | None:
+    """loudnorm pass 1 over the joined segments. None if the audio is silent or unmeasurable."""
     cmd = [
         ffmpeg_path(),
         "-hide_banner",
         "-nostdin",
         "-nostats",
         "-y",
-        "-ss",
-        f"{start:.3f}",
-        "-to",
-        f"{end:.3f}",
-        "-i",
-        str(src),
-        "-vn",
-        "-af",
-        f"loudnorm=I={clip_cfg.loudness_i}:TP={clip_cfg.loudness_tp}:LRA={clip_cfg.loudness_lra}:print_format=json",
+        *segment_inputs(src, parts),
+        "-filter_complex",
+        audio_concat_filter(len(parts), durations)
+        + f";[acat]loudnorm=I={clip_cfg.loudness_i}:TP={clip_cfg.loudness_tp}:LRA={clip_cfg.loudness_lra}"
+        ":print_format=json[aout]",
+        "-map",
+        "[aout]",
         "-f",
         "null",
         "-",

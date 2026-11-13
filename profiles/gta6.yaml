@@ -124,3 +124,9 @@ placeholders:
   stunt: ["a ramp jump", "a bike flip", "a highway jump"]
   action: ["get chased", "lose the cops", "crash a jet"]
   t: ["3", "5", "8"]
+
+# Story building (case-insensitive regex, added to the built-in lists in scoring/stories.py):
+# story_cues open a new story, stakes_words set up what is at stake, payoff_words confirm a result.
+story_cues: ["(?:new|next) mission", "let'?s (?:try|do|see if)", "(?:okay|alright),? (?:so )?(?:now|next)"]
+stakes_words: ["\\d+ stars?", "wanted level", "heist", "if (?:i|we) (?:get|make|survive)", "challenge"]
+payoff_words: ["wasted", "busted", "made it", "we did it", "escaped", "lost (?:them|the cops)", "no way", "clutch"]

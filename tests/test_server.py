@@ -16,6 +16,8 @@ EXPECTED_TOOLS = {
     "set_clip_metadata",
     "list_outputs",
     "cut_clip",
+    "story_map",
+    "render_edit",
 }
 
 
@@ -112,6 +114,25 @@ async def test_cut_clip_exact_range(client: Client, sample_video: Path) -> None:
     assert data["start"] == 8.0 and data["end"] == 20.0 and data["hook"] == "MY HOOK"
     assert Path(data["path"]).exists() and Path(data["path"]).with_suffix(".txt").exists()
     assert data["reasons"][0].startswith("manual cut")
+
+
+@pytest.mark.anyio
+async def test_render_edit_joins_segments(client: Client, sample_video: Path) -> None:
+    res = await client.call_tool(
+        "render_edit",
+        {
+            "source": str(sample_video),
+            "segments": [["0:01", "0:05"], ["24", "28"]],
+            "niche": "mrbeast",
+            "hook": "Khalid vs Ronaldo for $1M",
+        },
+    )
+    assert not res.is_error, res.content[0].text
+    data = res.structured_content
+    assert len(data["segments"]) == 2 and abs(data["duration"] - 8.0) < 0.2
+    assert data["hook"] == "Khalid vs Ronaldo for $1M"
+    sheet = Path(data["path"]).with_suffix(".txt").read_text(encoding="utf-8")
+    assert "Edit list (2 pieces" in sheet
 
 
 def test_parse_timestamp() -> None:

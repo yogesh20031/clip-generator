@@ -45,11 +45,44 @@ class OverlayItem:
     duration: float
 
 
-def group_lines(words: list[Word], words_per_line: int) -> list[CaptionLine]:
+def clip_timeline_words(
+    words_by_part: list[list[Word]], parts: list[tuple[float, float]], durations: list[float]
+) -> tuple[list[Word], set[int]]:
+    """Map source-time words onto the clip's timeline (after jump cuts).
+
+    Returns the words in clip seconds and the indices of words that open a new segment, so a caption
+    line never spans a cut. Whisper splits "$100,000" into "$100" + ",000": those pieces are re-joined.
+    """
+    out: list[Word] = []
+    breaks: set[int] = set()
+    offset = 0.0
+    for (a, _b), dur, words in zip(parts, durations, words_by_part, strict=True):
+        first = True
+        for w in words:
+            mid = (w.start + w.end) / 2
+            if not (a <= mid <= a + dur):
+                continue
+            start = max(0.0, w.start - a) + offset
+            end = min(dur, w.end - a) + offset
+            text = w.text.strip()
+            if out and not first and text[:1] in {",", "-", "'", "%"} and len(text) > 1:
+                prev = out[-1]
+                out[-1] = Word(text=prev.text + text, start=prev.start, end=end, prob=prev.prob)
+                continue
+            if first:
+                breaks.add(len(out))
+                first = False
+            out.append(Word(text=text, start=start, end=max(end, start + 0.05), prob=w.prob))
+        offset += dur
+    return out, breaks
+
+
+def group_lines(words: list[Word], words_per_line: int, breaks: set[int] | None = None) -> list[CaptionLine]:
     lines: list[CaptionLine] = []
     current: list[Word] = []
-    for w in words:
-        if current and (len(current) >= words_per_line or w.start - current[-1].end > LINE_GAP_S):
+    for i, w in enumerate(words):
+        cut_here = breaks is not None and i in breaks
+        if current and (len(current) >= words_per_line or w.start - current[-1].end > LINE_GAP_S or cut_here):
             lines.append(CaptionLine(current))
             current = []
         current.append(w)
@@ -141,11 +174,12 @@ def build_caption_sequence(
     cfg: CaptionConfig,
     font_path: Path,
     out_dir: Path,
+    breaks: set[int] | None = None,
 ) -> tuple[list[OverlayItem], list[CaptionLine]]:
     """Render every word-state and return a gapless timeline covering the whole clip."""
     out_dir.mkdir(parents=True, exist_ok=True)
     blank = blank_png(size, out_dir / "blank.png")
-    lines = group_lines(words, cfg.words_per_line)
+    lines = group_lines(words, cfg.words_per_line, breaks)
     items: list[OverlayItem] = []
     cursor = 0.0
     n = 0

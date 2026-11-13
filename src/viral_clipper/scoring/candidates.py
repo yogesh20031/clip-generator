@@ -14,6 +14,14 @@ class Window:
     start: float
     end: float
     on_sentences: bool  # both edges are sentence boundaries
+    # A non-contiguous edit (source-time ranges in play order); empty = the single range start..end.
+    segments: tuple[tuple[float, float], ...] = ()
+    # Pre-computed (context_completeness, reason) for story edits, which know their own context.
+    context: tuple[float, str] | None = None
+
+    @property
+    def parts(self) -> tuple[tuple[float, float], ...]:
+        return self.segments or ((self.start, self.end),)
 
 
 def _snap_to_cut(t: float, cuts: np.ndarray, before: float = 0.8, after: float = 0.3) -> float:
@@ -70,11 +78,23 @@ def generate_windows(
     return windows
 
 
-def select_non_overlapping(candidates: list[Candidate], num_clips: int, min_gap: float) -> list[Candidate]:
-    """Greedy by score; a candidate is kept only if it stays `min_gap` away from every kept one."""
+def _core(c: Candidate) -> tuple[float, float]:
+    return (c.core_start if c.core_start is not None else c.start, c.core_end if c.core_end is not None else c.end)
+
+
+def select_non_overlapping(
+    candidates: list[Candidate], num_clips: int, min_gap: float, taken: list[Candidate] | None = None
+) -> list[Candidate]:
+    """Greedy by score; a candidate is kept only if its core stays `min_gap` away from every kept one.
+
+    Story edits may share a setup line (the premise), so only the core (escalation → reaction) counts.
+    `taken` are clips already chosen elsewhere that new picks must not overlap.
+    """
     chosen: list[Candidate] = []
+    blocked = list(taken or [])
     for cand in sorted(candidates, key=lambda c: c.score, reverse=True):
-        if all(cand.end + min_gap <= k.start or cand.start >= k.end + min_gap for k in chosen):
+        a, b = _core(cand)
+        if all(b + min_gap <= _core(k)[0] or a >= _core(k)[1] + min_gap for k in chosen + blocked):
             chosen.append(cand)
             if len(chosen) >= num_clips:
                 break

@@ -113,6 +113,31 @@ class FeatureContribution(BaseModel):
     contribution: float
 
 
+class Segment(BaseModel):
+    """One piece of source footage in a clip's edit list (source-time seconds)."""
+
+    start: float
+    end: float
+    role: str = "body"  # opening | stakes | context | escalation | action | payoff | reaction | cold_open | body
+
+    @property
+    def duration(self) -> float:
+        return self.end - self.start
+
+
+class StoryInfo(BaseModel):
+    """What a viewer needs to follow the clip: who, what is at stake, and when the payoff lands."""
+
+    story_index: int
+    story_start: float
+    story_end: float
+    premise: str = ""
+    names: list[str] = Field(default_factory=list)
+    stakes: str = ""
+    payoff_time: float = 0.0
+    removed_s: float = 0.0  # filler/dead air cut out between story start and the clip's end
+
+
 class Candidate(BaseModel):
     start: float
     end: float
@@ -123,10 +148,24 @@ class Candidate(BaseModel):
     reasons: list[str]
     transcript_text: str
     hook_pattern: str
+    # Non-contiguous edit list; empty means the single range start..end.
+    segments: list[Segment] = Field(default_factory=list)
+    story: StoryInfo | None = None
+    # Overlap is judged on the core (escalation → reaction), so two clips may share a setup line.
+    core_start: float | None = None
+    core_end: float | None = None
+
+    @property
+    def parts(self) -> list[Segment]:
+        return self.segments or [Segment(start=self.start, end=self.end)]
 
     @property
     def duration(self) -> float:
-        return self.end - self.start
+        return sum(s.duration for s in self.parts)
+
+    @property
+    def premise(self) -> str:
+        return self.story.premise if self.story else ""
 
 
 class ClipMetadata(BaseModel):
@@ -156,6 +195,9 @@ class ClipRecord(BaseModel):
     features: dict[str, float] = Field(default_factory=dict)
     thumbnail_time: float = 0.0
     thumbnail_alternatives: list[str] = Field(default_factory=list)
+    # The edit list (source times) and the story context it was built from.
+    segments: list[Segment] = Field(default_factory=list)
+    story: StoryInfo | None = None
     # Fill in after publishing (views, viewed-vs-swiped, skip rate, CTR) to refit profile weights later.
     analytics: dict[str, float] = Field(default_factory=dict)
 
@@ -186,6 +228,34 @@ class AnalysisSummary(BaseModel):
     energy_curve_1hz: list[float]
     motion_curve_1hz: list[float]
     cache_path: str
+
+
+class StorySentence(BaseModel):
+    """One numbered line of a story. `id` is the transcript sentence index used by render_edit."""
+
+    id: int | None  # None for a speechless action stretch
+    start: float
+    end: float
+    text: str
+    role: str  # transition | stakes | payoff | action | filler | sponsor | body
+
+
+class StoryOverview(BaseModel):
+    index: int
+    start: float
+    end: float
+    premise: str
+    names: list[str]
+    sentences: list[StorySentence]
+    # The automatic edit for each payoff in this story: what clip_video would cut.
+    proposed_edits: list[list[Segment]]
+    proposed_scores: list[float]
+
+
+class StoryMap(BaseModel):
+    video_title: str
+    source: str
+    stories: list[StoryOverview]
 
 
 class OutputEntry(BaseModel):

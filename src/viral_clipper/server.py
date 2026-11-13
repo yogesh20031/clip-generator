@@ -27,13 +27,17 @@ from viral_clipper.models import (
     ClipVideoResult,
     OutputEntry,
     Platform,
+    StoryMap,
 )
 
 log = logging.getLogger(__name__)
 
 INSTRUCTIONS = """viral-clipper cuts long videos (YouTube URL or local file) into vertical 9:16 short clips.
-Typical flow: analyze_video -> score_moments (optional preview) -> clip_video; cut_clip renders one exact
-range. Clips, clips.json and clips.csv land in <output_dir>/<video-title>/ (default ~/Desktop/viral-clipper).
+Each clip is one complete story (who, what is at stake, build-up, payoff, reaction) with the filler jump-cut
+out, so it makes sense to someone who never saw the long video.
+Typical flow: clip_video does everything. To hand-edit: story_map lists every story with numbered sentences
+and their roles (transition/stakes/payoff/...), then render_edit renders the sentence ids or time ranges you
+pick (non-contiguous is fine). cut_clip renders one exact range. Output lands in <output_dir>/<video-title>/.
 Niches: gta6, mrbeast, generic. Metadata is template-generated unless Anthropic credentials are configured;
 you can always rewrite copy yourself and persist it with set_clip_metadata."""
 
@@ -90,8 +94,11 @@ async def clip_video(
     output_dir: str | None = None,
     ctx: Context = None,  # type: ignore[assignment]
 ) -> ClipVideoResult:
-    """Find the most viral-worthy moments in a video and cut them into captioned 9:16 clips.
+    """Find the most viral-worthy stories in a video and cut each into a captioned 9:16 clip.
 
+    Every clip is built from one complete story: the opening/premise, the stakes, the build-up, the payoff
+    and the reaction, with the filler between them jump-cut out, so a newcomer understands it. A premise
+    card ("Ronaldo vs Khalid for $1M") opens the clip.
     source: a YouTube URL or a local mp4/mov/mkv path. niche: gta6 | mrbeast | generic (a profile in
     profiles/). Clips run 30-70 s by default and are saved next to the source video in
     <output_dir>/<video-title>/ as clip_NN.mp4 (1080x1920, word-by-word captions, hook overlay, -14 LUFS)
@@ -140,6 +147,59 @@ async def cut_clip(
         end,
         duration,
         _cfg(),
+        niche=niche,
+        hook=hook,
+        platforms=_platforms(platforms),
+        output_dir=output_dir,
+    )
+
+
+@mcp.tool()
+async def story_map(
+    source: str,
+    niche: str = "generic",
+    ctx: Context = None,  # type: ignore[assignment]
+) -> StoryMap:
+    """Split a video into its stories (one challenge/round/bit each) and label every sentence's role:
+    transition, stakes, payoff, action (speechless stretch), filler, sponsor or body. Sentence `id`s feed
+    render_edit. Each story also lists the automatic edits clip_video would cut and their scores. Use it
+    to build your own context-complete clip: pick the transition + stakes lines, the build-up, the payoff
+    and its reaction, and skip filler and sponsor lines."""
+    if niche not in list_profiles():
+        raise ToolError(f"Unknown niche {niche!r}. Available: {', '.join(list_profiles())}.")
+    return await _run(ctx, pipeline.run_story_map, source, niche, _cfg())
+
+
+@mcp.tool()
+async def render_edit(
+    source: str,
+    sentence_ids: list[int] | None = None,
+    segments: list[list[str]] | None = None,
+    niche: str = "generic",
+    hook: str | None = None,
+    platforms: list[str] | None = None,
+    output_dir: str | None = None,
+    ctx: Context = None,  # type: ignore[assignment]
+) -> ClipRecord:
+    """Render one clip from an edit list: sentence_ids from story_map and/or segments as [start, end]
+    pairs (seconds or mm:ss). Pieces play in time order joined by jump cuts; long pauses inside chosen
+    sentences are cut out. Same 9:16 reframe, captions, hook card, loudness and metadata as clip_video;
+    appended to clips.json/clips.csv as the next clip. Put the premise in hook (e.g. "Ronaldo vs Khalid
+    for $1M") so the opening card gives viewers the context."""
+    if niche not in list_profiles():
+        raise ToolError(f"Unknown niche {niche!r}. Available: {', '.join(list_profiles())}.")
+    pairs: list[tuple[str, str]] = []
+    for seg in segments or []:
+        if len(seg) != 2:
+            raise ToolError(f"Each segment must be [start, end]; got {seg!r}.")
+        pairs.append((seg[0], seg[1]))
+    return await _run(
+        ctx,
+        pipeline.run_render_edit,
+        source,
+        _cfg(),
+        segments=pairs or None,
+        sentence_ids=sentence_ids,
         niche=niche,
         hook=hook,
         platforms=_platforms(platforms),

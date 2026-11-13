@@ -10,7 +10,7 @@ to polish titles and hooks.
 
 ```
 clip_video("https://www.youtube.com/watch?v=...", niche="mrbeast")
-  → ~/Desktop/viral-clipper/<video-title>/clip_01.mp4 … clip_10.mp4
+  → ~/Documents/Desktop/viral-clipper/<video-title>/clip_01.mp4 … clip_10.mp4
     + thumbnails/, captions/*.srt, clips.json, clips.csv
 ```
 
@@ -60,8 +60,10 @@ Check with `claude mcp list`, then in a Claude Code session:
 
 | Tool | Purpose |
 |---|---|
-| `clip_video(source, niche="generic", num_clips=10, min_len=30, max_len=70, platforms=None, output_dir=None)` | The whole pipeline. Returns every clip with path, score, reasons, hook and per-platform metadata. |
+| `clip_video(source, niche="generic", num_clips=10, min_len=30, max_len=70, platforms=None, output_dir=None)` | The whole pipeline: one complete story per clip (premise → stakes → build-up → payoff → reaction, filler jump-cut out). Returns every clip with path, edit list, story context, score, reasons, hook and per-platform metadata. |
 | `cut_clip(source, start, end=None, duration=None, niche="generic", hook=None, platforms=None, output_dir=None)` | Cut one clip from an exact range (`"17:42"` + `duration="1:20"`), same captions/hook/reframe/loudness, appended as the next clip number. |
+| `story_map(source, niche="generic")` | Every story in the video with numbered sentences, each labelled transition / stakes / payoff / action / filler / sponsor / body, plus the automatic edits and their scores. |
+| `render_edit(source, sentence_ids=None, segments=None, niche="generic", hook=None, …)` | Render your own edit: sentence ids from `story_map` and/or `[start, end]` ranges, joined with jump cuts, with the same captions, reframe, hook card and loudness. |
 | `analyze_video(source, force=False)` | Transcript sentences with timestamps, scene cuts, audio peaks, 1 Hz energy and motion curves. Cached. |
 | `score_moments(source, niche, num_clips, min_len, max_len)` | Ranked moments with a 0-100 score, per-signal contributions and plain-language reasons. Renders nothing. |
 | `generate_metadata(clip_path, platform, niche=None)` | Title, description, hashtags and hook for one existing clip and platform. |
@@ -86,7 +88,7 @@ uv run viral-clipper              # = serve (MCP over stdio)
 ## Output
 
 ```
-~/Desktop/viral-clipper/<video-title>/
+~/Documents/Desktop/viral-clipper/<video-title>/
 ├── source.mp4            downloaded source (local files are used in place)
 ├── analysis.json         cached transcript + signal curves
 ├── clip_01.mp4 … clip_10.mp4   1080x1920, 30 fps, H.264 + AAC 48 kHz, -14 LUFS
@@ -97,29 +99,73 @@ uv run viral-clipper              # = serve (MCP over stdio)
 └── clips.csv             one row per clip per platform: title, hashtags, description, hook
 ```
 
-## How moments are chosen
+## How clips are built: one story per clip
 
-1. **Analyze**: Whisper word timestamps → sentences; librosa loudness/onset/shout-band z-scores
-   (causal, so a spike is a surprise relative to the previous 10 s); PySceneDetect cuts; OpenCV motion
-   intensity and centroid; fused "action" events where motion, audio and a cut coincide.
-2. **Candidates**: windows that start on a sentence start (snapped to a shot cut just before it) and end on
-   a sentence end, between `min_len` and `max_len`. Pure gameplay without speech falls back to cuts and a grid.
-3. **Score**: 16 normalized features × the niche profile's weights → 0-100, with the top-3 contributing
-   signals turned into reasons ("loudness spike at 3:12", "mentions $100,000", "story turn: but, then").
-4. **Select**: greedy, no overlaps, 2 s gap.
-5. **Hook**: a pattern (curiosity gap / shock / wait for it / bold claim / open loop) chosen from the
-   signal shape, filled from the transcript's numbers, names and keywords.
-6. **Render**: face → motion → centre reframe to 9:16 with smooth pans, PNG word captions, hook card for
-   the first 2 s, two-pass `loudnorm`, x264 CRF 18.
+A clip is not "the loudest 60 seconds". It is one complete story that someone who never saw the long
+video can follow: **who** is involved, **what is at stake**, the **build-up**, the **payoff** and the
+**reaction**. The filler between those beats is jump-cut out. This is how professional editors and the
+published clipping systems work (HIVE, OpusClip's Repurpose-10K, Adobe PodReels; see
+[`docs/research.md` §6](docs/research.md)).
+
+1. **Analyze.**
+   - Whisper word timestamps become sentences.
+   - librosa gives loudness, onset and shout-band z-scores. They are causal, so a spike is a surprise relative to the previous 10 s.
+   - PySceneDetect finds cuts.
+   - OpenCV measures motion intensity and its centroid.
+   - Places where motion, audio and a cut coincide are fused into "action" events.
+2. **Find the stories.**
+   - The video is split at spoken transitions ("For our next challenge…", "It is finally time to meet…", "let's go see…").
+   - Each split is backed by a topic change, a change of names, a pause and a scene cut.
+   - Sponsor reads are found and never used.
+   - Stretches with no speech but lots of action (a race, a shot, a crash) become units of their own, so the action is kept.
+3. **Find each story's payoffs.** A payoff is the loud moment that the next lines confirm ("That was a tie!", "Here is one million dollars!"). The story's final result gets a bonus.
+4. **Build the edit.**
+   - Always kept:
+     - the opening line
+     - the stakes ("If Khalid can beat Ronaldo, I'm going to give him a million dollars")
+     - the line that introduces anyone named at the payoff
+     - the build-up into the payoff
+     - the payoff itself
+     - up to 6 s of reaction
+   - The clip ends on the reaction, never the wind-down.
+   - Optional lines are added by importance until the niche's target length, capped at `max_len`.
+   - Filler, dead air and pauses over 0.5 s are cut out.
+5. **Premise card.** The clip opens on a card such as "Ronaldo vs Khalid for $1M", built from the story's names and stakes, so the context lands in the first 3.5 s. The same text is the title.
+6. **Score and select.**
+   - 16 normalized features × the niche weights, plus a coverage score. Coverage checks for a clean opening, stakes set up, names explained, a payoff, and an ending on the reaction.
+   - No two clips share a payoff.
+   - When a video has fewer stories than `num_clips`, the rest are filled with the best contiguous windows.
+7. **Render.**
+   - Each piece is reframed separately (face → motion → centre).
+   - Pieces are joined frame-exactly with 15 ms audio fades, so the jump cuts don't click.
+   - Captions are remapped to the clip's timeline.
+   - Two-pass `loudnorm` over the joined audio.
+
+`clip_NN.txt` lists the premise, the stakes line, where the story sits in the source and the full edit
+list. `clip.mode: window` in `config.yaml` brings back the old single-window behaviour.
+
+**Hand-editing.** In Claude Code, ask for the story map, then pick the sentences you want:
+
+```text
+> map the stories in https://www.youtube.com/watch?v=0BjlBnfHcHM (mrbeast)
+> render sentences 471, 473, 484-487 and 544, plus 20:43-21:01, with hook "Ronaldo vs Khalid for $1M"
+```
+
+From the CLI:
+
+```bash
+uv run viral-clipper stories <url> --niche mrbeast
+uv run viral-clipper edit <url> --ids 471 473 484 485 486 487 544 --seg 20:43-21:01 --hook "Ronaldo vs Khalid for \$1M"
+```
 
 ### Rules every clip must satisfy
 
-1. **It stands on its own.** A viewer who has never seen the source must still get it: the clip opens on a
-   real sentence start (never on "and…", "but…", "so…" or a dangling pronoun), has at least ~8 s of
-   setup before the payoff, ends on a full stop, and carries enough speech (or, for gameplay, enough
-   build-up) to be a complete beat. This is the `context_completeness` feature; windows below
-   `clip.min_context` (0.35) are skipped while enough better ones exist, and the mrbeast/generic profiles
-   weight it 0.9/0.8 so a self-contained moment outranks a louder fragment.
+1. **It stands on its own.** A viewer who has never seen the source must still get it.
+   - The clip is one story with its premise, stakes, build-up, payoff and reaction (see above).
+   - It never opens on "and…", "but…" or a dangling pronoun.
+   - Everyone named at the payoff is introduced earlier in the clip or on the premise card.
+   - This is scored as `context_completeness`. Clips below `clip.min_context` (0.35) are skipped.
+   - The mrbeast and generic profiles weight it at 0.9 and 0.8, so a complete story outranks a louder fragment.
 2. **The thumbnail is picked for clicks.** Frames are sampled across the finished clip and scored on the
    biggest visible face/reaction, contrast and sharpness, biased towards the payoff. The best frame is
    `thumbnails/clip_NN.jpg`; two alternates (`_alt1`, `_alt2`) sit beside it so you can choose. The chosen

@@ -81,3 +81,9 @@ hashtags:
 placeholders:
   topic: ["this", "it", "that moment"]
   n: ["10", "30", "60"]
+
+# Story building (case-insensitive regex, added to the built-in lists in scoring/stories.py):
+# story_cues open a new story, stakes_words set up what is at stake, payoff_words confirm a result.
+story_cues: []
+stakes_words: []
+payoff_words: []

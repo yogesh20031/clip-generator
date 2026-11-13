@@ -7,6 +7,7 @@ import json
 import sys
 
 from rich.console import Console
+from rich.markup import escape
 from rich.progress import BarColumn, Progress, TextColumn, TimeElapsedColumn
 from rich.table import Table
 
@@ -61,7 +62,14 @@ def cmd_clip(args: argparse.Namespace) -> int:
     table.add_column("hook")
     table.add_column("why")
     for c in result.clips:
-        table.add_row(str(c.index), f"{c.start:.0f}-{c.end:.0f}s", f"{c.score:.0f}", c.hook, "; ".join(c.reasons[:2]))
+        pieces = f" ({len(c.segments)} cuts)" if len(c.segments) > 1 else ""
+        table.add_row(
+            str(c.index),
+            f"{c.start:.0f}-{c.end:.0f}s, {c.duration:.0f}s{pieces}",
+            f"{c.score:.0f}",
+            c.hook,
+            "; ".join(c.reasons[:2]),
+        )
     console.print(table)
     for w in result.warnings:
         console.print(f"[yellow]warning:[/] {w}")
@@ -102,6 +110,50 @@ def cmd_cut(args: argparse.Namespace) -> int:
     console.print(
         f"[bold]{record.path}[/]  {record.start:.0f}-{record.end:.0f}s  score {record.score:.0f}  hook: {record.hook}"
     )
+    print(record.path)
+    return 0
+
+
+def _clock(t: float) -> str:
+    return f"{int(t // 60)}:{int(t % 60):02d}"
+
+
+def cmd_stories(args: argparse.Namespace) -> int:
+    story_map = _with_bar("story_map", pipeline.run_story_map, args.source, args.niche, get_config())
+    if args.json:
+        print(story_map.model_dump_json(indent=2))
+        return 0
+    for st in story_map.stories:
+        console.print(f"\n[bold]Story {st.index}[/]  {_clock(st.start)}-{_clock(st.end)}  {st.premise or ''}")
+        for s in st.sentences:
+            if s.role in ("filler",) and not args.all:
+                continue
+            sid = f"{s.id:4d}" if s.id is not None else "   -"
+            console.print(escape(f"  {sid} [{s.role:10}] {s.start:7.1f} {s.text[:100]}"), highlight=False)
+    return 0
+
+
+def _parse_seg(value: str) -> tuple[str, str]:
+    if "-" not in value.lstrip("-"):
+        raise argparse.ArgumentTypeError("use START-END, e.g. 16:05-16:43")
+    start, end = value.split("-", 1)
+    return start, end
+
+
+def cmd_edit(args: argparse.Namespace) -> int:
+    record = _with_bar(
+        "render_edit",
+        pipeline.run_render_edit,
+        args.source,
+        get_config(),
+        segments=args.seg or None,
+        sentence_ids=args.ids or None,
+        niche=args.niche,
+        hook=args.hook,
+        platforms=[Platform(p) for p in args.platforms] if args.platforms else None,
+        output_dir=args.output_dir,
+    )
+    console.print(f"[bold]{record.path}[/]  {record.duration:.0f}s in {max(1, len(record.segments))} pieces")
     print(record.path)
     return 0
 
@@ -160,6 +212,23 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--platforms", nargs="*", choices=[pl.value for pl in ALL_PLATFORMS])
     p.add_argument("--output-dir")
     p.set_defaults(func=cmd_cut)
+
+    p = sub.add_parser("stories", help="list the video's stories with numbered sentences and roles")
+    p.add_argument("source")
+    p.add_argument("--niche", default="generic", choices=list_profiles())
+    p.add_argument("--all", action="store_true", help="also show filler lines")
+    p.add_argument("--json", action="store_true")
+    p.set_defaults(func=cmd_stories)
+
+    p = sub.add_parser("edit", help="render a clip from sentence ids and/or START-END ranges")
+    p.add_argument("source")
+    p.add_argument("--seg", action="append", type=_parse_seg, help="START-END (seconds or mm:ss); repeatable")
+    p.add_argument("--ids", type=int, nargs="*", help="sentence ids from `viral-clipper stories`")
+    p.add_argument("--niche", default="generic", choices=list_profiles())
+    p.add_argument("--hook", help="premise/hook card text")
+    p.add_argument("--platforms", nargs="*", choices=[pl.value for pl in ALL_PLATFORMS])
+    p.add_argument("--output-dir")
+    p.set_defaults(func=cmd_edit)
 
     p = sub.add_parser("list", help="show saved clips")
     p.add_argument("--output-dir")

@@ -24,6 +24,7 @@ CSV_COLUMNS = [
     "description",
     "hook",
     "reasons",
+    "segments",
 ]
 
 
@@ -49,9 +50,27 @@ def clip_text(clip: ClipRecord, video_title: str) -> str:
         header,
         f"Why: {'; '.join(clip.reasons)}",
         "",
-        f"HOOK (on-screen, first 2s): {clip.hook}",
+        f"HOOK (on-screen card at the start): {clip.hook}",
         "",
     ]
+    if clip.story:
+        st = clip.story
+        lines += [
+            "==== What a viewer needs (story context) ====",
+            f"Premise: {st.premise or '-'}",
+            f"Who: {', '.join(st.names) or '-'}",
+            f"Stakes line: {st.stakes or '-'}",
+            f"Story runs {_fmt_t(st.story_start)}-{_fmt_t(st.story_end)} in the source; "
+            f"payoff at {_fmt_t(st.payoff_time)}; {st.removed_s:.0f}s of filler cut out.",
+            "",
+        ]
+    if len(clip.segments) > 1:
+        lines.append(f"==== Edit list ({len(clip.segments)} pieces, source times) ====")
+        for seg in clip.segments:
+            lines.append(
+                f"  {_fmt_t(seg.start)}.{int(seg.start % 1 * 10)}-{_fmt_t(seg.end)}.{int(seg.end % 1 * 10)}  {seg.role}"
+            )
+        lines.append("")
     for platform, meta in clip.metadata.items():
         lines += [
             f"==== {PLATFORM_LABELS.get(platform, platform.value)} ====",
@@ -95,6 +114,7 @@ def write_outputs(result: ClipVideoResult) -> None:
                         "description": meta.description.replace("\n", " / "),
                         "hook": meta.hook,
                         "reasons": "; ".join(clip.reasons),
+                        "segments": " ".join(f"{s.start:.2f}-{s.end:.2f}" for s in clip.segments),
                     }
                 )
 

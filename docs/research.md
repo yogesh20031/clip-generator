@@ -277,6 +277,86 @@ Hook templates (all creator-observed; patterns: curiosity_gap, shock, wait_for_i
 
 Hashtag co-occurrence source: [DisplayPurposes #gta6](https://displaypurposes.com/hashtags/hashtag/gta6). No TikTok view totals for GTA tags were found.
 
+## 6. What a clip is: one complete story, not a window
+
+Researched 2026-11-13 after the first demo showed the problem. clip_08 of the Ronaldo video set up
+Speed vs the fastest man alive and ended on "He's actually ahead", before the result. clip_01 started
+on the tail of one race and stopped before the next contest began. Choosing "the loudest 30-70 s
+window" produces this. Professional editors cut differently.
+
+### 6.1 Primary and research sources
+
+- **HIVE (ByteDance, EMNLP 2025 Industry track), [arXiv 2507.02790](https://arxiv.org/html/2507.02790v2).**
+  - Units are scenes merged into events, not raw time spans.
+  - Highlights are scored against a pattern table, and scenes next to each other are merged.
+  - The **opening** is chosen separately. It must not depend on mid-event context and should introduce characters and premise.
+  - The **ending** is also chosen separately, from the scenes after the highlight.
+  - "General" scenes between opening and highlight are **pruned and spliced**, so the clip is non-contiguous.
+  - Ablation results:
+    - Without opening/ending selection: hook falls from 0.71 to 0.28 and suspense from 0.73 to 0.30.
+    - Without pruning: engagement falls from 0.89 to 0.69.
+    - Asking an LLM to pick spans straight from the ASR transcript: about 7× worse smoothness. This is the baseline our v1 matched.
+- **Repurpose-10K, [arXiv 2412.08879](https://arxiv.org/html/2412.08879).**
+  - Data: 120,925 OpusClip clips that users kept and then re-trimmed. Mean length 58.7 s, range 20-154 s.
+  - Definition of a good clip: "a self-contained sub-topic".
+  - Completeness ratings out of 5: random 30-90 s windows 1.51, professional editors 3.74. The boundaries decide the clip.
+- **PodReels (Adobe, DIS '24), [arXiv 2311.05867](https://arxiv.org/html/2311.05867v2).**
+  - Unexplained references such as "here" and "them" lose new viewers.
+  - Editors bring in neighbouring or non-adjacent sentences for context and cut filler.
+  - Average teaser length is 27 s.
+  - The LLM returns sentence IDs, which are mapped back to timestamps.
+- **Google Cloud / Glance**, [blog](https://cloud.google.com/blog/products/media-entertainment/how-glance-turns-hours-of-video-into-mobile-ready-clips-with-ai).
+  - Word-level ASR, then an LLM picks start and end. Output is 30-180 s, aiming for the best 60 s.
+  - Still contiguous.
+- **OpusClip** ([help](https://help.opus.pro/docs/article/virality-score), [blog](https://www.opus.pro/blog/ai-podcast-clipping-goes-mainstream-video-creators)):
+  - Clip boundaries follow topic transitions and emotional peaks.
+  - Some clips "need brief setup text or on-screen context to make sense".
+
+### 6.2 Practitioners (vendor blogs: advice, not data)
+
+- **[Pixflow](https://pixflow.net/blog/standalone-short-video-clips/).**
+  - "The strongest thirty seconds may not exist as thirty consecutive seconds"; its example stitches minutes 18, 21 and 23.
+  - Cut detours and repeats.
+  - Start earlier rather than more dramatically.
+  - Use a 5-second cold test with someone who hasn't seen the video.
+  - End on a deliberate beat.
+- **[Eklipse, GTA RP](https://blog.eklipse.gg/streaming-tips/gta-rp-moments.html).**
+  - Structure: setup, escalation, payoff, optional reaction.
+  - Never cut the escalation.
+  - Cut dead air, menus and driving.
+  - "Every second after the strongest beat costs you viewers."
+- **[ClipSpeed, MrBeast clips](https://www.clipspeed.ai/blog/clip-mrbeast-videos-go-viral.html).**
+  - Each clip is one complete mini-story of 30-60 s.
+  - End on the reaction, not the wind-down.
+  - 40 s of setup before the reveal loses viewers.
+- **Openings disagree.**
+  - [OpenClip](https://openclip.app/guide.md) and Content Rewards say open on tension or the reaction.
+  - HIVE and Pixflow say open on the premise.
+  - We open on the premise with a premise card and offer a cold open (`clip.cold_open_s`) for A/B tests.
+
+No clipping company publishes its own algorithm, and the MrBeast/Vyro clipping rules are not public.
+
+### 6.3 What we implemented (`scoring/stories.py`, `scoring/edits.py`)
+
+1. **Stories.**
+   - Boundaries at spoken transitions such as "for our next challenge", "it is finally time", "let's go see" and "we're gonna head back to".
+   - Each boundary is backed by a TextTiling-style cohesion drop, a change of names, the pause and a scene cut.
+   - Long stretches with no transition are split at their best gap.
+   - Sponsor reads are flagged and never used.
+2. **Units.** Sentences plus speechless **action gaps** (high motion or loudness with no words), so a race or a shot is kept.
+3. **Payoff.** The loud moment that the next lines **confirm** ("that was a tie!", "Here is one million dollars!"). The story's last confirmed payoff is its result and gets a small bonus.
+4. **Context closure.**
+   - Always kept: the opening, the stakes lines, the intro line for every name used at the payoff, the last build-up line, the payoff, and the reaction.
+   - The reaction stops 6 s after the payoff, or earlier at a teaser or filler line.
+5. **Pruning.**
+   - Optional lines are ranked by names, numbers, signal and nearness to the payoff, then added up to the niche's length prior.
+   - Filler, dead air and pauses over 0.5 s are jump-cut out.
+   - If the clip runs over budget, distant intros go first, then extra stakes lines, then the earliest setup.
+6. **Premise card.** "Ronaldo vs Khalid for $1M" is built from the main names and the stakes amount and stays on screen for 3.5 s.
+7. **Coverage score**, which replaces v1's `context_completeness`. Weights: clean opening 0.25, stakes 0.2, names explained 0.2, payoff 0.2, ends on reaction 0.15.
+
+Thresholds such as 6 s of reaction, 0.5 s maximum pause and 8 s maximum context splice are our estimates. No source publishes them.
+
 ## Gaps
 
 - The original TeamYouTube Oct 2026 post and the Creator Insider video were not fetched directly.

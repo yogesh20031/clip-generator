@@ -8,7 +8,7 @@ import re
 import numpy as np
 
 from viral_clipper.config import Profile
-from viral_clipper.models import AnalysisResult, Candidate, FeatureContribution
+from viral_clipper.models import AnalysisResult, Candidate, FeatureContribution, Segment
 from viral_clipper.scoring.candidates import Window, generate_windows, select_non_overlapping
 from viral_clipper.scoring.signals import SignalContext
 
@@ -57,50 +57,69 @@ class Scorer:
 
     # --- features ----------------------------------------------------------------------------
 
+    def _cat(self, arr: np.ndarray, parts: tuple[tuple[float, float], ...]) -> np.ndarray:
+        if len(parts) == 1:
+            return self.ctx.window(arr, *parts[0])
+        return np.concatenate([self.ctx.window(arr, a, b) for a, b in parts])
+
+    def _source_time(self, parts: tuple[tuple[float, float], ...], out_t: float) -> float:
+        """Clip-time seconds → source seconds."""
+        acc = 0.0
+        for a, b in parts:
+            if out_t <= acc + (b - a):
+                return a + (out_t - acc)
+            acc += b - a
+        return parts[-1][1]
+
     def features(self, window: Window) -> tuple[dict[str, float], dict[str, str], float]:
-        """Returns (features, detail strings for reasons, peak_time)."""
+        """Returns (features, detail strings for reasons, peak_time in source seconds)."""
         ctx = self.ctx
-        start, end = window.start, window.end
-        dur = max(0.1, end - start)
-        text = ctx.transcript.text_between(start, end)
+        parts = window.parts
+        start = parts[0][0]
+        dur = max(0.1, sum(b - a for a, b in parts))
+        words = [w for a, b in parts for w in ctx.transcript.words_between(a, b)]
+        text = " ".join(w.text for w in words).strip()
         lower = text.lower()
         f: dict[str, float] = {}
         detail: dict[str, str] = {}
 
-        audio_z = ctx.window(ctx.audio_z, start, end)
-        motion = ctx.window(ctx.motion, start, end)
-        event = ctx.window(ctx.event, start, end)
-        silence = ctx.window(ctx.silence, start, end)
-        level = ctx.window(ctx.audio_level, start, end)
+        def inside(t: float) -> bool:
+            return any(a <= t <= b for a, b in parts)
+
+        audio_z = self._cat(ctx.audio_z, parts)
+        motion = self._cat(ctx.motion, parts)
+        event = self._cat(ctx.event, parts)
+        silence = self._cat(ctx.silence, parts)
+        level = self._cat(ctx.audio_level, parts)
 
         peak_idx = int(np.argmax(event + audio_z)) if event.size else 0
         peak_rel = peak_idx / max(1, len(event))
-        peak_time = start + peak_idx / ctx.rate_hz
+        peak_time = self._source_time(parts, peak_idx / ctx.rate_hz)
         peak_val = float((event + audio_z)[peak_idx]) if event.size else 0.0
 
         f["audio_peak"] = float(audio_z.max()) if audio_z.size else 0.0
         if f["audio_peak"] > 0.3:
-            detail["audio_peak"] = f"loudness spike at {_fmt_t(start + int(np.argmax(audio_z)) / ctx.rate_hz)}"
+            loud_t = self._source_time(parts, int(np.argmax(audio_z)) / ctx.rate_hz)
+            detail["audio_peak"] = f"loudness spike at {_fmt_t(loud_t)}"
 
         f["motion_intensity"] = float(motion.mean()) if motion.size else 0.0
         detail["motion_intensity"] = "high on-screen motion"
 
-        cuts_in = int(((ctx.scene_cuts > start) & (ctx.scene_cuts < end)).sum())
+        cuts_in = int(sum(((ctx.scene_cuts > a) & (ctx.scene_cuts < b)).sum() for a, b in parts))
         f["scene_cut_density"] = min(1.0, (cuts_in / (dur / 10.0)) / 3.0)
         detail["scene_cut_density"] = f"{cuts_in} scene cuts"
 
         top3 = np.sort(event)[-3:] if event.size else np.zeros(1)
         f["event_density"] = float(top3.mean())
-        n_action = sum(1 for e in ctx.events if e.kind == "action" and start <= e.time <= end)
+        n_action = sum(1 for e in ctx.events if e.kind == "action" and inside(e.time))
         detail["event_density"] = f"{n_action} action spikes (motion+audio+cut)"
 
-        words = ctx.transcript.words_between(start, end)
         wps = len(words) / dur
         wps_norm = min(1.0, wps / (2 * ctx.median_wps)) if ctx.median_wps > 0 else 0.0
         f["speech_excitement"] = 0.6 * wps_norm + 0.4 * (float(level.mean()) if level.size else 0.0)
         detail["speech_excitement"] = f"fast, loud speech ({wps:.1f} words/s)"
 
-        n_laugh = sum(1 for e in ctx.events if e.kind == "laugh_shout" and start <= e.time <= end)
+        n_laugh = sum(1 for e in ctx.events if e.kind == "laugh_shout" and inside(e.time))
         f["laughter_shout"] = min(1.0, n_laugh / 2.0)
         detail["laughter_shout"] = f"{n_laugh} shout/laugh bursts"
 
@@ -148,16 +167,20 @@ class Scorer:
         f["silence_penalty"] = min(1.0, 2.0 * float(silence.mean())) if silence.size else 0.0
         detail["silence_penalty"] = f"{float(silence.mean()) * 100:.0f}% dead air"
 
-        first7 = ctx.transcript.text_between(start, start + VIOLENCE_WINDOW_S).lower()
+        first7 = " ".join(w.text for w in words if w.start < self._source_time(parts, VIOLENCE_WINDOW_S)).lower()
         violent_first7 = any(p.search(first7) for p in self._violence)
         violent_any = any(p.search(lower) for p in self._violence)
-        early_event = any(e.kind == "action" and start <= e.time <= start + VIOLENCE_WINDOW_S for e in ctx.events)
+        early_end = self._source_time(parts, VIOLENCE_WINDOW_S)
+        early_event = any(e.kind == "action" and start <= e.time <= early_end and inside(e.time) for e in ctx.events)
         f["violence_first7s"] = 1.0 if violent_first7 else (0.5 if (violent_any and early_event) else 0.0)
         detail["violence_first7s"] = "violence in the first 7 s (YouTube ad rule)"
 
-        f["context_completeness"], detail["context_completeness"] = self._context(
-            words, text, peak_rel * dur, peak_val, window.on_sentences
-        )
+        if window.context is not None:
+            f["context_completeness"], detail["context_completeness"] = window.context
+        else:
+            f["context_completeness"], detail["context_completeness"] = self._context(
+                words, text, peak_rel * dur, peak_val, window.on_sentences
+            )
 
         # v2 placeholders: present so weights can be tuned now, zero until detectors exist.
         for name in ("face_reaction", "ocr_banner", "audio_event_class", "llm_hook_flow_value_trend"):
@@ -218,16 +241,18 @@ class Scorer:
         ][:3]
         penalties = [detail[c.name] for c in contributions if c.contribution < -0.05 and detail.get(c.name)]
         reasons += [f"penalty: {p}" for p in penalties[:1]]
+        parts = window.parts
         return Candidate(
-            start=round(window.start, 2),
-            end=round(window.end, 2),
+            start=round(parts[0][0], 2),
+            end=round(parts[-1][1], 2),
             score=round(score, 1),
             peak_time=round(peak_time, 2),
             features={k: round(v, 3) for k, v in feats.items()},
             contributions=contributions,
             reasons=reasons or ["balanced signals"],
-            transcript_text=self.ctx.transcript.text_between(window.start, window.end),
+            transcript_text=" ".join(self.ctx.transcript.text_between(a, b) for a, b in parts).strip(),
             hook_pattern=pick_hook_pattern(feats),
+            segments=[Segment(start=round(a, 3), end=round(b, 3)) for a, b in window.segments],
         )
 
 

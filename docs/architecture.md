@@ -16,8 +16,12 @@ analysis/          audio.wav ──► librosa: RMS, onsets, 300-3000 Hz band z-
                    analyze.py  everything cached in analysis.json (fingerprint = file + config)
    ▼
 scoring/           signals.py   per-video robust 0-1 normalization
-                   candidates.py sentence-boundary windows (min_len..max_len), snapped to cuts; grid fallback
-                   scorer.py    16 features × profile weights → 0-100, top-3 reasons, hook pattern
+                   stories.py   units (sentences + speechless action gaps) → stories (spoken transitions,
+                                cohesion drop, name shift, pause, cut) → beats (stakes, payoff, filler, sponsor)
+                   edits.py     per payoff: opening + stakes + name intros + build-up + payoff + reaction,
+                                filler pruned to the length budget → edit list of source segments
+                   candidates.py sentence-boundary windows (fallback / window mode), core-overlap selection
+                   scorer.py    16 features over the edit's segments × profile weights → 0-100, reasons
                    profile      profiles/<niche>.yaml (weights, keywords, hook/title templates, hashtags)
    ▼
 render/            crop.py      YuNet face → motion centroid → centre, EMA-smoothed, cut resets → crop expr
@@ -25,7 +29,8 @@ render/            crop.py      YuNet face → motion centroid → centre, EMA-s
                    hook_overlay.py  hook card PNG for the first ~2 s
                    thumbnail.py face/contrast/sharpness-scored frame near the payoff + alternates
                    ffmpeg.py    loudnorm two-pass (-14 LUFS / -1 dBTP / LRA 11), progress parsing
-                   clip.py      one ffmpeg call: crop → scale 1080x1920 → overlays → x264 + aac
+                   clip.py      one ffmpeg call: per-segment input + crop → frame-exact trim → concat
+                                (15 ms audio fades) → caption/hook overlays on clip time → x264 + aac
    ▼
 metadata/          templates.py  deterministic hooks/titles/descriptions/hashtags (always available)
                    llm.py        optional Claude rewrite + Hook/Flow/Value/Trend virality score
@@ -39,7 +44,10 @@ metadata/          templates.py  deterministic hooks/titles/descriptions/hashtag
 
 | Tool | What it does |
 |---|---|
-| `clip_video(source, niche, num_clips, min_len, max_len, platforms, output_dir)` | full pipeline → clips + metadata |
+| `clip_video(source, niche, num_clips, min_len, max_len, platforms, output_dir)` | full pipeline → one story per clip + metadata |
+| `story_map(source, niche)` | stories, numbered sentences with beat roles, automatic edits |
+| `render_edit(source, sentence_ids, segments, niche, hook, …)` | render any (non-contiguous) edit list |
+| `cut_clip(source, start, end, duration, …)` | one exact range (a one-segment render_edit) |
 | `analyze_video(source, force)` | transcript sentences, scene cuts, audio peaks, 1 Hz energy/motion curves |
 | `score_moments(source, niche, num_clips, min_len, max_len)` | ranked candidates with reasons, nothing rendered |
 | `generate_metadata(clip_path, platform, niche)` | title/description/hashtags/hook for one clip |
@@ -57,14 +65,27 @@ sentence_boundary_bonus, length_prior, context_completeness, silence_penalty, vi
 `face_reaction, ocr_banner, audio_event_class`, and `llm_hook_flow_value_trend` which only counts when
 Claude scored the clip). Weights and their research basis: `docs/research.md` §5.
 
-Windows with `context_completeness < clip.min_context` are dropped first (a clip must make sense on its own). Selection is then greedy by score with no overlap and a `min_gap_s` buffer. Clips start on a sentence start
-(or a shot cut just before it) and end on a sentence end, so speech is never cut mid-sentence.
+In story mode (default), a clip is an edit list built from one story (see `docs/research.md` §6).
+`context_completeness` is that edit's coverage:
+
+| Part | Weight |
+|---|---|
+| Clean opening | 0.25 |
+| Stakes set up | 0.2 |
+| Every name at the payoff explained | 0.2 |
+| Payoff present | 0.2 |
+| Ends on the reaction | 0.15 |
+
+Edits below `clip.min_context` are dropped. Selection is greedy by score with no overlap between clip cores. A core runs from the build-up through the payoff and reaction, so two clips from one story may share the premise lines. Every cut falls on word boundaries, so speech is never cut mid-word.
 
 ## Design decisions
 
 - **PNG overlays instead of libass**: Homebrew's FFmpeg has no `subtitles`/`ass`/`drawtext` filters; the
   concat-demuxer overlay works on every build and gives exact styling control.
 - **Causal z-scores** for spikes: a spike is a surprise relative to the previous 10 s, not a centred window.
+- **Edit lists, not windows**: a clip is the story's beats joined by jump cuts. The strongest 60 seconds
+  rarely exist as 60 consecutive seconds, and HIVE's ablation shows span-picking is the weak baseline.
+- **Premise card over generic hook**: "Ronaldo vs Khalid for $1M" gives a newcomer the context in 3.5 s.
 - **No letterboxing**: Instagram demotes bordered Reels, so the reframe is always a true crop.
 - **Templates first, Claude optional**: `clip_video` never depends on an API key; the Claude Code session
   that drives the server can rewrite copy and persist it with `set_clip_metadata`.

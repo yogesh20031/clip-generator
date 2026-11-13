@@ -3,7 +3,7 @@
 paths:
   # Every processed video gets its own folder here: <output_dir>/<video-title>/
   # containing source.mp4 (downloads), clip_01.mp4 ..., clips.json, clips.csv, thumbnails/.
-  output_dir: ~/Desktop/viral-clipper
+  output_dir: ~/Documents/Desktop/viral-clipper
   log_dir: logs
   font: assets/fonts/Montserrat-ExtraBold.ttf
   face_model: assets/models/face_detection_yunet_2023mar.onnx
@@ -46,6 +46,14 @@ clip:
   post_roll_s: 0.4
   min_context: 0.35      # every clip must stand on its own (see README: rules)
   thumbnail_alternatives: 2
+  # story: each clip is one complete story (premise -> stakes -> build-up -> payoff -> reaction) with the
+  #        filler jump-cut out, like a human editor would cut it (docs/research.md §6).
+  # window: the older single contiguous window.
+  mode: story
+  max_pause_s: 0.5       # pauses longer than this inside kept speech are cut out
+  story_min_s: 20        # shorter stories merge into a neighbour
+  cold_open_s: 0         # >0 = flash this many seconds of the payoff first, then rewind (A/B test it)
+  max_context_splice_s: 8  # an earlier line that introduces someone is spliced in only if this short
 
 captions:
   enabled: true
@@ -59,6 +67,7 @@ captions:
   uppercase: true
   hook_enabled: true
   hook_duration_s: 2.0
+  premise_duration_s: 3.5  # the premise card ("Ronaldo vs Khalid for $1M") stays up longer than a hook
   hook_font_size: 92
   hook_y_ratio: 0.24
   hook_color: "#FFFFFF"

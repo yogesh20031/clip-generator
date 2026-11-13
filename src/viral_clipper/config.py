@@ -79,6 +79,17 @@ class ClipConfig(BaseModel):
     min_context: float = 0.35
     # Thumbnail: how many alternative frames to save next to the chosen one.
     thumbnail_alternatives: int = 2
+    # story = build each clip from one complete story (setup → stakes → payoff → reaction) and jump-cut
+    # the filler out; window = the older single contiguous window.
+    mode: Literal["story", "window"] = "story"
+    # Pauses longer than this inside kept speech are cut out (jump cut).
+    max_pause_s: float = 0.5
+    # Stories shorter than this are merged into a neighbour.
+    story_min_s: float = 20.0
+    # >0 puts this many seconds of the payoff in front of the clip (cold open), then rewinds to the setup.
+    cold_open_s: float = 0.0
+    # Earlier sentences that introduce a name are spliced in only if they are at most this long.
+    max_context_splice_s: float = 8.0
 
 
 class CaptionConfig(BaseModel):
@@ -94,6 +105,8 @@ class CaptionConfig(BaseModel):
     uppercase: bool = True
     hook_enabled: bool = True
     hook_duration_s: float = 2.0
+    # A premise card ("Khalid vs Ronaldo for $1M") carries context, so it stays up longer than a hook.
+    premise_duration_s: float = 3.5
     hook_font_size: int = 92
     hook_y_ratio: float = 0.24
     hook_color: str = "#FFFFFF"
@@ -198,6 +211,10 @@ class Profile(BaseModel):
     hashtags: dict[Platform, list[str]]
     # Fallback fillers for {placeholders} when the transcript has nothing suitable.
     placeholders: dict[str, list[str]] = Field(default_factory=dict)
+    # Story building (regex fragments, case-insensitive), added to the built-in lists in scoring/stories.py.
+    story_cues: list[str] = Field(default_factory=list)
+    stakes_words: list[str] = Field(default_factory=list)
+    payoff_words: list[str] = Field(default_factory=list)
 
     @field_validator("hashtags", mode="before")
     @classmethod

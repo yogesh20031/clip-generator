@@ -8,7 +8,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from viral_clipper.analysis.analyze import analyze, cache_path
-from viral_clipper.config import Config, load_profile
+from viral_clipper.config import Config, Profile, load_profile
 from viral_clipper.errors import ClipperError, InvalidSourceError, NoClipsError, RenderError
 from viral_clipper.ingest.ffprobe import ensure_ffmpeg
 from viral_clipper.ingest.source import resolve_source
@@ -17,6 +17,7 @@ from viral_clipper.metadata.outputs import find_clip, read_result, write_outputs
 from viral_clipper.metadata.templates import TemplateEngine
 from viral_clipper.models import (
     ALL_PLATFORMS,
+    AnalysisResult,
     AnalysisSummary,
     Candidate,
     ClipMetadata,
@@ -24,11 +25,17 @@ from viral_clipper.models import (
     ClipVideoResult,
     Platform,
     SentenceSummary,
+    StoryMap,
+    StoryOverview,
+    StorySentence,
 )
 from viral_clipper.progress import ProgressFn, StageProgress
-from viral_clipper.render.clip import render_clip
+from viral_clipper.render.clip import RenderedClip, render_clip
 from viral_clipper.scoring.candidates import Window
+from viral_clipper.scoring.edits import WordBounds, merge_segments, score_stories, unit_segments
 from viral_clipper.scoring.scorer import Scorer, score_moments
+from viral_clipper.scoring.signals import SignalContext
+from viral_clipper.scoring.stories import Unit, pick_payoffs
 
 log = logging.getLogger(__name__)
 
@@ -86,14 +93,12 @@ def summarize(result, cache: Path) -> AnalysisSummary:
     )
 
 
-def run_score(req: ClipRequest, cfg: Config, progress: ProgressFn | None = None) -> list[Candidate]:
-    ensure_ffmpeg()
-    cfg = _with_output_dir(cfg, req.output_dir)
-    profile = load_profile(req.niche)
-    stages = StageProgress({"ingest": 1.0, "analyze": 8.0, "score": 0.5}, progress)
-    video, work_dir = resolve_source(req.source, cfg, stages.sub("ingest"))
-    result = analyze(video, work_dir, cfg, stages.sub("analyze"))
-    stages.report("score", 0.1, "Scoring candidate moments")
+def select_clips(result: AnalysisResult, profile: Profile, req: ClipRequest, cfg: Config) -> list[Candidate]:
+    """Story mode (default): one complete story per clip, filler jump-cut out. Window mode: the old
+    single contiguous window."""
+    if cfg.clip.mode == "story" and not result.transcript.is_empty:
+        selected, _edits, _model = score_stories(result, profile, req.num_clips, req.min_len, req.max_len, cfg.clip)
+        return selected
     selected, _all = score_moments(
         result,
         profile,
@@ -105,6 +110,18 @@ def run_score(req: ClipRequest, cfg: Config, progress: ProgressFn | None = None)
         cfg.clip.min_gap_s,
         cfg.clip.min_context,
     )
+    return selected
+
+
+def run_score(req: ClipRequest, cfg: Config, progress: ProgressFn | None = None) -> list[Candidate]:
+    ensure_ffmpeg()
+    cfg = _with_output_dir(cfg, req.output_dir)
+    profile = load_profile(req.niche)
+    stages = StageProgress({"ingest": 1.0, "analyze": 8.0, "score": 0.5}, progress)
+    video, work_dir = resolve_source(req.source, cfg, stages.sub("ingest"))
+    result = analyze(video, work_dir, cfg, stages.sub("analyze"))
+    stages.report("score", 0.1, "Finding stories and scoring moments")
+    selected = select_clips(result, profile, req, cfg)
     stages.report("score", 1.0, f"{len(selected)} moments selected")
     return selected
 
@@ -141,18 +158,8 @@ def run_clip_video(req: ClipRequest, cfg: Config, progress: ProgressFn | None = 
         )
 
     t0 = time.perf_counter()
-    stages.report("score", 0.1, "Scoring candidate moments")
-    selected, _all = score_moments(
-        result,
-        profile,
-        req.num_clips,
-        req.min_len,
-        req.max_len,
-        cfg.clip.pre_roll_s,
-        cfg.clip.post_roll_s,
-        cfg.clip.min_gap_s,
-        cfg.clip.min_context,
-    )
+    stages.report("score", 0.1, "Finding stories and scoring moments")
+    selected = select_clips(result, profile, req, cfg)
     timings["score"] = time.perf_counter() - t0
     if not selected:
         raise NoClipsError(
@@ -206,26 +213,7 @@ def run_clip_video(req: ClipRequest, cfg: Config, progress: ProgressFn | None = 
             t_render += time.perf_counter() - t0
             continue
         t_render += time.perf_counter() - t0
-        clips.append(
-            ClipRecord(
-                index=i,
-                path=str(rendered.path),
-                thumbnail_path=str(rendered.thumbnail),
-                srt_path=str(rendered.srt),
-                start=cand.start,
-                end=cand.end,
-                duration=round(cand.end - cand.start, 2),
-                score=score,
-                reasons=cand.reasons,
-                transcript_text=cand.transcript_text,
-                hook=hook,
-                hook_pattern=cand.hook_pattern,
-                metadata=meta,
-                features=cand.features,
-                thumbnail_time=rendered.thumbnail_time,
-                thumbnail_alternatives=[str(a) for a in rendered.thumbnail_alternatives],
-            )
-        )
+        clips.append(_record(i, cand, rendered, score, hook, meta))
     timings["render"] = t_render
     timings["metadata"] = t_meta
     if not clips:
@@ -245,6 +233,29 @@ def run_clip_video(req: ClipRequest, cfg: Config, progress: ProgressFn | None = 
     write_outputs(out)
     stages.report("write", 1.0, f"Saved {len(clips)} clips to {work_dir}")
     return out
+
+
+def _record(index: int, cand: Candidate, rendered: RenderedClip, score: float, hook: str, meta) -> ClipRecord:
+    return ClipRecord(
+        index=index,
+        path=str(rendered.path),
+        thumbnail_path=str(rendered.thumbnail),
+        srt_path=str(rendered.srt),
+        start=cand.start,
+        end=cand.end,
+        duration=round(cand.duration, 2),
+        score=score,
+        reasons=cand.reasons,
+        transcript_text=cand.transcript_text,
+        hook=hook,
+        hook_pattern=cand.hook_pattern,
+        metadata=meta,
+        features=cand.features,
+        thumbnail_time=rendered.thumbnail_time,
+        thumbnail_alternatives=[str(a) for a in rendered.thumbnail_alternatives],
+        segments=cand.segments,
+        story=cand.story,
+    )
 
 
 def run_generate_metadata(clip_path: str, platform: Platform, niche: str | None, cfg: Config) -> ClipMetadata:
@@ -285,41 +296,128 @@ def parse_timestamp(value: str | float | int) -> float:
     return total
 
 
-def run_cut_clip(
+def run_story_map(source: str, niche: str, cfg: Config, progress: ProgressFn | None = None) -> StoryMap:
+    """Every story in the video with numbered sentences, beat roles and the automatic edits."""
+    ensure_ffmpeg()
+    profile = load_profile(niche)
+    stages = StageProgress({"ingest": 1.0, "analyze": 8.0, "stories": 0.5}, progress)
+    video, work_dir = resolve_source(source, cfg, stages.sub("ingest"))
+    result = analyze(video, work_dir, cfg, stages.sub("analyze"))
+    if result.transcript.is_empty:
+        raise NoClipsError("No speech was transcribed, so there are no stories to map; use clip_video instead.")
+    _sel, edits, model = score_stories(
+        result, profile, cfg.clip.num_clips, cfg.clip.min_len, cfg.clip.max_len, cfg.clip
+    )
+    stories: list[StoryOverview] = []
+    for story in model.stories:
+        payoffs = {story.units[p].index for p in pick_payoffs(story)}
+        sentences = []
+        for u in story.units:
+            if u.is_ad:
+                role = "sponsor"
+            elif u.cue:
+                role = "transition"
+            elif u.index in payoffs:
+                role = "payoff"
+            elif u.kind == "action":
+                role = "action"
+            elif u.payoff_words >= 0.5:
+                role = "payoff"
+            elif u.stakes >= 0.5:
+                role = "stakes"
+            elif u.is_filler:
+                role = "filler"
+            else:
+                role = "body"
+            sentences.append(
+                StorySentence(
+                    id=u.sentence_index,
+                    start=round(u.start, 2),
+                    end=round(u.end, 2),
+                    text=u.text or "[no speech: action]",
+                    role=role,
+                )
+            )
+        mine = [c for c in edits if c.story and c.story.story_index == story.index]
+        premise = next((c.story.premise for c in mine if c.story and c.story.premise), "")
+        names = next((c.story.names for c in mine if c.story and c.story.names), [])
+        stories.append(
+            StoryOverview(
+                index=story.index,
+                start=round(story.start, 2),
+                end=round(story.end, 2),
+                premise=premise,
+                names=names,
+                sentences=sentences,
+                proposed_edits=[c.segments for c in mine],
+                proposed_scores=[c.score for c in mine],
+            )
+        )
+    stages.report("stories", 1.0, f"{len(stories)} stories")
+    return StoryMap(video_title=video.title, source=video.source_url or video.path, stories=stories)
+
+
+def _segments_from_sentences(result: AnalysisResult, ids: list[int], cfg: Config) -> list[tuple[float, float]]:
+    """Sentence ids → tightened source ranges (long pauses inside a sentence are cut too)."""
+    sentences = result.transcript.sentences
+    bad = [i for i in ids if not 0 <= i < len(sentences)]
+    if bad:
+        raise InvalidSourceError(f"Unknown sentence ids {bad}; story_map lists ids 0-{len(sentences) - 1}.")
+    ctx = SignalContext.from_analysis(result)
+    bounds = WordBounds(ctx)
+    raw: list[tuple[float, float]] = []
+    for i in sorted(set(ids)):
+        s = sentences[i]
+        unit = Unit(index=i, start=s.start, end=s.end, kind="speech", text=s.text, words=list(s.words))
+        raw += unit_segments(unit, ctx, cfg.clip.max_pause_s, bounds=bounds)
+    return merge_segments(raw, cfg.clip.max_pause_s, result.video.duration)
+
+
+def run_render_edit(
     source: str,
-    start: str | float,
-    end: str | float | None,
-    duration: str | float | None,
     cfg: Config,
+    segments: list[tuple[str | float, str | float]] | None = None,
+    sentence_ids: list[int] | None = None,
     niche: str = "generic",
     hook: str | None = None,
     platforms: list[Platform] | None = None,
     output_dir: str | None = None,
     progress: ProgressFn | None = None,
+    manual_note: str = "manual edit",
 ) -> ClipRecord:
-    """Cut one clip from an exact time range, with the same captions, hook, reframe and loudness as
-    clip_video, and append it to the video's clips.json / clips.csv as the next clip number."""
+    """Render any edit list (source ranges and/or transcript sentence ids, played in time order) with the
+    same captions, reframe, hook card and loudness as clip_video, appended as the next clip number."""
     ensure_ffmpeg()
     cfg = _with_output_dir(cfg, output_dir)
     profile = load_profile(niche)
-    t_start = parse_timestamp(start)
-    if end is None and duration is None:
-        raise InvalidSourceError("Give either end or duration for the cut.")
-    t_end = parse_timestamp(end) if end is not None else t_start + parse_timestamp(duration)  # type: ignore[arg-type]
-    if t_end - t_start < 3:
-        raise InvalidSourceError("A cut must be at least 3 seconds long.")
-
+    if not segments and not sentence_ids:
+        raise InvalidSourceError("Give segments (start/end pairs) or sentence_ids from story_map.")
     stages = StageProgress({"ingest": 1.0, "analyze": 8.0, "render": 3.0, "write": 0.1}, progress)
     video, work_dir = resolve_source(source, cfg, stages.sub("ingest"))
-    if t_end > video.duration + 0.5:
-        raise InvalidSourceError(f"{t_end:.0f}s is past the end of the video ({video.duration:.0f}s).")
-    t_end = min(t_end, video.duration)
     stages.report("ingest", 1.0, f"Source ready: {video.title}")
     result = analyze(video, work_dir, cfg, stages.sub("analyze"))
 
+    parts: list[tuple[float, float]] = []
+    for a, b in segments or []:
+        t0, t1 = parse_timestamp(a), parse_timestamp(b)
+        if t1 - t0 < 0.3:
+            raise InvalidSourceError(f"Segment {a}-{b} is shorter than 0.3 s.")
+        if t1 > video.duration + 0.5:
+            raise InvalidSourceError(f"{t1:.0f}s is past the end of the video ({video.duration:.0f}s).")
+        parts.append((t0, min(t1, video.duration)))
+    if sentence_ids:
+        parts += _segments_from_sentences(result, sentence_ids, cfg)
+    parts = merge_segments(parts, 0.0, video.duration)
+    if sum(b - a for a, b in parts) < 3:
+        raise InvalidSourceError("An edit must be at least 3 seconds long.")
+
     scorer = Scorer(result, profile)
-    cand = scorer.score_window(Window(start=t_start, end=t_end, on_sentences=False))
-    cand.reasons = [f"manual cut {t_start:.0f}-{t_end:.0f}s", *cand.reasons]
+    window = Window(start=parts[0][0], end=parts[-1][1], on_sentences=bool(sentence_ids), segments=tuple(parts))
+    cand = scorer.score_window(window)
+    if len(parts) == 1:
+        cand.segments = []
+    span = f"{parts[0][0]:.0f}-{parts[-1][1]:.0f}s" + (f" in {len(parts)} pieces" if len(parts) > 1 else "")
+    cand.reasons = [f"{manual_note} {span}", *cand.reasons]
 
     existing = read_result(work_dir / "clips.json") if (work_dir / "clips.json").exists() else None
     index = (max((c.index for c in existing.clips), default=0) + 1) if existing else 1
@@ -333,24 +431,7 @@ def run_cut_clip(
         hook_text, meta, _v = llm_mod.refine_with_llm(cand, video.title, profile, draft_hook, meta, plats, cfg)
 
     rendered = render_clip(result, cand, index, hook_text, work_dir, cfg, progress=stages.sub("render"))
-    record = ClipRecord(
-        index=index,
-        path=str(rendered.path),
-        thumbnail_path=str(rendered.thumbnail),
-        srt_path=str(rendered.srt),
-        start=cand.start,
-        end=cand.end,
-        duration=round(cand.end - cand.start, 2),
-        score=cand.score,
-        reasons=cand.reasons,
-        transcript_text=cand.transcript_text,
-        hook=hook_text,
-        hook_pattern=cand.hook_pattern,
-        metadata=meta,
-        features=cand.features,
-        thumbnail_time=rendered.thumbnail_time,
-        thumbnail_alternatives=[str(a) for a in rendered.thumbnail_alternatives],
-    )
+    record = _record(index, cand, rendered, cand.score, hook_text, meta)
     if existing is None:
         existing = ClipVideoResult(
             video_title=video.title,
@@ -364,3 +445,35 @@ def run_cut_clip(
     write_outputs(existing)
     stages.report("write", 1.0, f"Saved {rendered.path.name}")
     return record
+
+
+def run_cut_clip(
+    source: str,
+    start: str | float,
+    end: str | float | None,
+    duration: str | float | None,
+    cfg: Config,
+    niche: str = "generic",
+    hook: str | None = None,
+    platforms: list[Platform] | None = None,
+    output_dir: str | None = None,
+    progress: ProgressFn | None = None,
+) -> ClipRecord:
+    """Cut one clip from an exact time range; a one-segment render_edit."""
+    t_start = parse_timestamp(start)
+    if end is None and duration is None:
+        raise InvalidSourceError("Give either end or duration for the cut.")
+    t_end = parse_timestamp(end) if end is not None else t_start + parse_timestamp(duration)  # type: ignore[arg-type]
+    if t_end - t_start < 3:
+        raise InvalidSourceError("A cut must be at least 3 seconds long.")
+    return run_render_edit(
+        source,
+        cfg,
+        segments=[(t_start, t_end)],
+        niche=niche,
+        hook=hook,
+        platforms=platforms,
+        output_dir=output_dir,
+        progress=progress,
+        manual_note="manual cut",
+    )

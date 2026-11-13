@@ -28,7 +28,8 @@ def fingerprint(video: VideoInfo, cfg: Config) -> str:
     p = Path(video.path)
     stat = p.stat()
     h = hashlib.sha1()
-    h.update(f"{p.resolve()}|{stat.st_size}|{int(stat.st_mtime)}".encode())
+    # Name + size + mtime, not the full path: moving the output folder must not throw the cache away.
+    h.update(f"{p.name}|{stat.st_size}|{int(stat.st_mtime)}".encode())
     h.update(json.dumps(cfg.analysis.model_dump(), sort_keys=True).encode())
     h.update(json.dumps(cfg.whisper.model_dump(), sort_keys=True).encode())
     return h.hexdigest()[:16]
@@ -90,7 +91,7 @@ def analyze(
             log.info("analysis cache hit for %s", video.title)
             if progress:
                 progress(1.0, "Loaded cached analysis")
-            return cached
+            return cached.model_copy(update={"video": video})
 
     stages = StageProgress(STAGES, progress)
     rate = cfg.analysis.rate_hz

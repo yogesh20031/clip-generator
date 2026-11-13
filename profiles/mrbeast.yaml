@@ -129,3 +129,9 @@ placeholders:
   container: ["box", "briefcase", "safe"]
   alternative: ["the mystery box", "the car", "the chance"]
   challenge: ["Challenge", "Showdown", "Battle"]
+
+# Story building (case-insensitive regex, added to the built-in lists in scoring/stories.py):
+# story_cues open a new story, stakes_words set up what is at stake, payoff_words confirm a result.
+story_cues: ["last (?:one|person) (?:standing|to)", "round (?:one|two|three|\\d+)", "for (?:our )?(?:the )?final (?:challenge|round)"]
+stakes_words: ["last to (?:leave|stop|take)", "eliminat\\w*", "keep (?:the|all the) money", "mystery box", "walk away with"]
+payoff_words: ["eliminated", "you(?:'re| are) (?:the )?winner", "won (?:the|\\$)", "here(?:'s| is) your", "keep it", "you (?:get|keep) (?:the|it|all)"]

@@ -170,11 +170,16 @@ class TemplateEngine:
     # --- pieces ------------------------------------------------------------------------------
 
     def hook(self, cand: Candidate, seed: int) -> str:
+        # A story clip opens on its premise ("Ronaldo vs Khalid for $1M"): context beats a generic tease.
+        if cand.premise:
+            return cand.premise
         pool = [t for t in self.profile.hook_templates if t.pattern == cand.hook_pattern] or self.profile.hook_templates
         template = pool[seed % len(pool)]
         return self.fill(template.text, self.extract_values(cand), seed)
 
     def title(self, cand: Candidate, seed: int) -> str:
+        if cand.premise and len(cand.premise) >= 8:
+            return cand.premise
         values = self.extract_values(cand)
         template = self.profile.title_templates[seed % len(self.profile.title_templates)]
         title = self.fill(template, values, seed)
