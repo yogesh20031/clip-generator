@@ -9,6 +9,7 @@ an edit list of source ranges joined with jump cuts, not one contiguous window.
 from __future__ import annotations
 
 import logging
+import re
 from dataclasses import dataclass
 
 import numpy as np
@@ -153,7 +154,9 @@ def _scope(model: StoryModel, story: Story) -> list[Unit]:
 
 def _premise(names: list[str], amounts: list[int], stakes_text: str) -> str:
     amt = format_amount(max(amounts)) if amounts else ""
-    short = " ".join(stakes_text.split()) if stakes_text and len(stakes_text.split()) <= 10 else ""
+    # Whisper writes "$100 ,000" and "half -court"; the card must read cleanly.
+    tidy = re.sub(r"\s+-(?=\w)", "-", re.sub(r"\s+([,.!?])", r"\1", " ".join(stakes_text.split())))
+    short = tidy if stakes_text and len(stakes_text.split()) <= 10 else ""
     if len(names) >= 2 and amt:
         return f"{names[0]} vs {names[1]} for {amt}"
     if short:

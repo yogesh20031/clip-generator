@@ -103,6 +103,15 @@ def test_parse_amounts_reads_spoken_money() -> None:
     assert format_amount(1_000_000) == "$1M" and format_amount(100_000) == "$100K" and format_amount(500) == "$500"
 
 
+def test_premise_card_text_is_tidy() -> None:
+    from viral_clipper.scoring.edits import _premise
+
+    assert _premise([], [100_000], "$100 ,000 on the line and a half -court shot.") == (
+        "$100,000 on the line and a half-court shot."
+    )
+    assert _premise(["Khalid", "Ronaldo"], [1_000_000], "") == "Khalid vs Ronaldo for $1M"
+
+
 def test_stories_split_on_spoken_transitions() -> None:
     model = build_story_model(story_analysis(), load_profile("mrbeast"), min_story_s=20)
     starts = [round(s.start) for s in model.stories]
