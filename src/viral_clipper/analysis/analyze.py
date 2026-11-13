@@ -91,7 +91,12 @@ def analyze(
             log.info("analysis cache hit for %s", video.title)
             if progress:
                 progress(1.0, "Loaded cached analysis")
-            return cached.model_copy(update={"video": video})
+            return cached.model_copy(
+                update={
+                    "video": video,
+                    "transcript": transcribe_mod.drop_hallucinations(cached.transcript, cfg.whisper.min_word_prob),
+                }
+            )
 
     stages = StageProgress(STAGES, progress)
     rate = cfg.analysis.rate_hz
@@ -168,4 +173,7 @@ def analyze(
     )
     cache_path(work_dir).write_text(result.model_dump_json(), encoding="utf-8")
     log.info("analysis timings: %s", {k: round(v, 1) for k, v in timings.items()})
-    return result
+    # The cache keeps the raw transcript so a threshold change doesn't need whisper again.
+    return result.model_copy(
+        update={"transcript": transcribe_mod.drop_hallucinations(transcript, cfg.whisper.min_word_prob)}
+    )

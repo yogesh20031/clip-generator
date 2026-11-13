@@ -53,6 +53,8 @@ def resolve_source(
             fps=meta.fps,
             source_url=info.url,
             video_id=info.video_id,
+            channel=info.channel,
+            license=info.license,
         )
         return video, work_dir
 

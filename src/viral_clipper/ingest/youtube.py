@@ -35,6 +35,8 @@ class RemoteInfo:
     title: str
     url: str
     duration: float | None
+    channel: str = ""
+    license: str = ""
 
 
 def _map_error(exc: Exception, url: str) -> DownloadError:
@@ -109,6 +111,8 @@ def fetch_info(url: str) -> RemoteInfo:
         title=str(info.get("title") or info.get("id") or "video"),
         url=str(info.get("webpage_url") or url),
         duration=float(info["duration"]) if info.get("duration") else None,
+        channel=str(info.get("channel") or info.get("uploader") or ""),
+        license=str(info.get("license") or ""),
     )
 
 

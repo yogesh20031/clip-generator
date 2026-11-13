@@ -11,7 +11,7 @@ import re
 
 from viral_clipper.config import Profile
 from viral_clipper.metadata.platforms import apply_rules
-from viral_clipper.models import Candidate, ClipMetadata, Platform
+from viral_clipper.models import Candidate, ClipMetadata, Platform, StoryInfo
 from viral_clipper.scoring.scorer import MONEY_RE
 
 _PLACEHOLDER_RE = re.compile(r"\{(\w+)\}")
@@ -113,8 +113,15 @@ def _proper_names(text: str) -> list[str]:
 
 
 class TemplateEngine:
-    def __init__(self, profile: Profile) -> None:
+    def __init__(self, profile: Profile, source_title: str = "", credit: str = "") -> None:
         self.profile = profile
+        self.credit = credit
+        self._swaps = [
+            (re.compile(re.escape(old)), new)
+            for v in profile.source_variants
+            if re.search(v.match, source_title, re.IGNORECASE)
+            for old, new in v.replace.items()
+        ]
         self._kw = [re.compile(r"\b" + re.escape(k.lower()) + r"\w*", re.IGNORECASE) for k in profile.keywords]
         self._kw_names = list(profile.keywords)
 
@@ -150,7 +157,7 @@ class TemplateEngine:
             )
             if salient:
                 values["topic"] = salient[0]
-        values["t"] = str(max(1, int(cand.peak_time - cand.start)))
+        values["t"] = str(max(1, int(_clip_time(cand, cand.peak_time))))
         return values
 
     def fill(self, template: str, values: dict[str, str], seed: int) -> str:
@@ -210,17 +217,47 @@ class TemplateEngine:
         # Niche tags first, content tags squeeze in before the generic tail.
         return base[:3] + extra + base[3:]
 
-    def bundle(self, cand: Candidate, seed: int, platforms: list[Platform]) -> tuple[str, dict[Platform, ClipMetadata]]:
-        hook = self.hook(cand, seed)
-        title = self.title(cand, seed)
+    def localize(self, text: str) -> str:
+        for pattern, new in self._swaps:
+            text = pattern.sub(new, text)
+        return text
+
+    def bundle(
+        self, cand: Candidate, seed: int, platforms: list[Platform], hook: str | None = None
+    ) -> tuple[str, dict[Platform, ClipMetadata]]:
+        if hook:
+            # Same treatment as a premise: the hand-written line is both the card and the title.
+            cand = cand.model_copy(update={"story": _premise_story(cand, hook)})
+        hook = self.localize(self.hook(cand, seed))
+        title = self.localize(self.title(cand, seed))
         out: dict[Platform, ClipMetadata] = {}
         for platform in platforms:
-            tags = self.hashtags(cand, platform)
+            tags = list(dict.fromkeys(self.localize(t) for t in self.hashtags(cand, platform)))
             description = self.profile.description_template.format(
                 hook=hook, summary=self.summary(cand), hashtags=" ".join(tags)
             )
+            # No transcript (raw gameplay) leaves an empty summary; don't ship a hole in the caption.
+            description = re.sub(r"\n{3,}", "\n\n", self.localize(description)).strip()
+            if self.credit:
+                description = f"{description}\n\n{self.credit}"
             t, d, h = apply_rules(platform, title, description, tags)
             if platform == Platform.TIKTOK:
                 t = apply_rules(platform, f"{hook} {' '.join(h[:3])}", "", [])[0]
             out[platform] = ClipMetadata(platform=platform, title=t, description=d, hashtags=h, hook=hook)
         return hook, out
+
+
+def _clip_time(cand: Candidate, t: float) -> float:
+    """Seconds into the rendered clip for a source time; a story edit skips the cut-out parts."""
+    elapsed = 0.0
+    for part in cand.parts:
+        if t <= part.end:
+            return elapsed + max(0.0, t - part.start)
+        elapsed += part.duration
+    return elapsed
+
+
+def _premise_story(cand: Candidate, premise: str) -> StoryInfo:
+    if cand.story:
+        return cand.story.model_copy(update={"premise": premise})
+    return StoryInfo(story_index=-1, story_start=cand.start, story_end=cand.end, premise=premise)

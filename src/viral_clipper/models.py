@@ -27,6 +27,17 @@ class VideoInfo(BaseModel):
     fps: float
     source_url: str | None = None
     video_id: str | None = None
+    channel: str = ""
+    license: str = ""  # as YouTube reports it, e.g. "Creative Commons Attribution license (reuse allowed)"
+
+    @property
+    def credit(self) -> str:
+        """Attribution for descriptions. CC BY requires it; for anything else it's basic courtesy."""
+        if not self.channel or not self.source_url:
+            return ""
+        if "creative commons" in self.license.lower():
+            return f"Gameplay: {self.channel} — {self.source_url} (CC BY)"
+        return f"Original video: {self.channel} — {self.source_url}"
 
 
 class Word(BaseModel):
@@ -205,6 +216,7 @@ class ClipRecord(BaseModel):
 class ClipVideoResult(BaseModel):
     video_title: str
     source: str
+    credit: str = ""
     output_dir: str
     clips_json: str
     clips_csv: str

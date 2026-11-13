@@ -16,6 +16,29 @@ log = logging.getLogger(__name__)
 _TERMINAL = re.compile(r"[.!?…]+[\"')\]]*$")
 MAX_SENTENCE_WORDS = 28
 
+# Lines whisper invents over music, engine noise or silence (it learned them from YouTube subtitles).
+_STOCK_PHRASES = re.compile(
+    r"(we'll be right back|thanks? (?:you )?for watching|please subscribe|subscribe to|"
+    r"see you (?:in the )?next (?:time|video)|subtitles? by|amara\.org|transcribed by)",
+    re.IGNORECASE,
+)
+# Scripts that never appear in a real English line ("Contentña tends to remain дав высolia").
+_FOREIGN_SCRIPT = re.compile(
+    "["
+    "\u0400-\u04ff"  # Cyrillic
+    "\u0590-\u06ff"  # Hebrew, Arabic
+    "\u0900-\u0dff"  # Indic
+    "\u0e00-\u0e7f"  # Thai
+    "\u1100-\u11ff\u3130-\u318f\uac00-\ud7af"  # Hangul
+    "\u3040-\u30ff\u4e00-\u9fff"  # Kana, CJK
+    "]"
+)
+# Sentences at least this long and confident count as real speech ("anchors").
+_ANCHOR_WORDS = 4
+_SHOUT_NEAR_SPEECH_S = 30.0
+# Vietnamese-only letters: whisper slips into Vietnamese when it hallucinates over gameplay audio.
+_VIETNAMESE = re.compile(r"[ăđơưạảấầẩẫậắằẳẵặẹẻẽếềểễệỉịọỏốồổỗộớờởỡợụủứừửữựỳỵỷỹ]", re.IGNORECASE)
+
 
 def pick_backend(cfg: WhisperConfig) -> str:
     if cfg.backend != "auto":
@@ -52,6 +75,48 @@ def transcribe(wav_path: Path, cfg: WhisperConfig, pause_s: float) -> Transcript
         "transcript: %d words, %d sentences (%s)", len(transcript.words), len(transcript.sentences), transcript.backend
     )
     return transcript
+
+
+def drop_hallucinations(transcript: Transcript, min_prob: float) -> Transcript:
+    """Remove sentences whisper made up. Videos with no commentary (gameplay, music) still get a
+    "transcript" of confident-looking nonsense; captioning or story-building on it ruins the clip.
+
+    Real shouts ("Oh!", "Go Jonah!") score as low as hallucinations, so confidence alone can't
+    tell them apart. A short low-confidence line is kept only when real speech is nearby, which is
+    true for a shout in a commentated video and false for noise over raw gameplay.
+
+    Runs on load as well as after transcription, so a cached transcript is filtered with the
+    current threshold without re-running whisper.
+    """
+    if transcript.is_empty:
+        return transcript
+    english = (transcript.language or "en").startswith("en")
+    plausible: list[tuple[Sentence, float]] = []
+    for sentence in transcript.sentences:
+        if not sentence.words:
+            continue
+        prob = sum(w.prob for w in sentence.words) / len(sentence.words)
+        if _STOCK_PHRASES.search(sentence.text) and prob < 0.8:
+            continue
+        if english and (_FOREIGN_SCRIPT.search(sentence.text) or _VIETNAMESE.search(sentence.text)):
+            continue
+        plausible.append((sentence, prob))
+
+    def is_anchor(sentence: Sentence, prob: float) -> bool:
+        return prob >= min_prob and len(sentence.words) >= _ANCHOR_WORDS
+
+    anchors = [s.start for s, prob in plausible if is_anchor(s, prob)]
+    kept: list[Sentence] = []
+    for sentence, prob in plausible:
+        near_speech = any(abs(t - sentence.start) <= _SHOUT_NEAR_SPEECH_S for t in anchors)
+        # A long line whisper had almost no confidence in is invented even in a talky video.
+        rambling = len(sentence.words) >= 8 and prob < min_prob / 2
+        if is_anchor(sentence, prob) or (near_speech and not rambling):
+            kept.append(sentence)
+    dropped = len(transcript.sentences) - len(kept)
+    if dropped:
+        log.info("transcript: dropped %d of %d sentences as whisper hallucinations", dropped, len(transcript.sentences))
+    return transcript.model_copy(update={"sentences": kept, "words": [w for s in kept for w in s.words]})
 
 
 def _clean_words(words: list[Word]) -> list[Word]:

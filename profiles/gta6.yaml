@@ -129,4 +129,17 @@ placeholders:
 # story_cues open a new story, stakes_words set up what is at stake, payoff_words confirm a result.
 story_cues: ["(?:new|next) mission", "let'?s (?:try|do|see if)", "(?:okay|alright),? (?:so )?(?:now|next)"]
 stakes_words: ["\\d+ stars?", "wanted level", "heist", "if (?:i|we) (?:get|make|survive)", "challenge"]
+# The profile is written for GTA 6; a GTA 5 / GTA V source swaps the game name everywhere so a
+# GTA 5 clip is never sold as GTA 6 (misleading titles get reach cut and comments turn hostile).
+source_variants:
+  - match: "\\bgta\\s*(?:5|v)\\b|grand theft auto v\\b"
+    replace:
+      "GTA 5 vs GTA 6": "GTA 5 Online vs Story Mode"
+      "GTA 6 vs GTA 5": "GTA 5 Story Mode vs Online"
+      "GTA 6": "GTA 5"
+      "#GTA6": "#GTA5"
+      "#gta6": "#gta5"
+      "#gtavi": "#gtav"
+      "Vice City": "Los Santos"
+
 payoff_words: ["wasted", "busted", "made it", "we did it", "escaped", "lost (?:them|the cops)", "no way", "clutch"]

@@ -93,10 +93,18 @@ def summarize(result, cache: Path) -> AnalysisSummary:
     )
 
 
+def is_commentated(result: AnalysisResult, min_wpm: float) -> bool:
+    """Story edits are built from what people say. Raw gameplay with a handful of stray words has
+    no story to follow, so it gets continuous action windows: jump cuts in wordless footage just
+    look like skipped frames."""
+    minutes = max(result.video.duration / 60.0, 1e-6)
+    return len(result.transcript.words) / minutes >= min_wpm
+
+
 def select_clips(result: AnalysisResult, profile: Profile, req: ClipRequest, cfg: Config) -> list[Candidate]:
     """Story mode (default): one complete story per clip, filler jump-cut out. Window mode: the old
     single contiguous window."""
-    if cfg.clip.mode == "story" and not result.transcript.is_empty:
+    if cfg.clip.mode == "story" and is_commentated(result, cfg.clip.min_speech_wpm):
         selected, _edits, _model = score_stories(result, profile, req.num_clips, req.min_len, req.max_len, cfg.clip)
         return selected
     selected, _all = score_moments(
@@ -173,7 +181,7 @@ def run_clip_video(req: ClipRequest, cfg: Config, progress: ProgressFn | None = 
         )
     stages.report("score", 1.0, f"{len(selected)} moments selected")
 
-    engine = TemplateEngine(profile)
+    engine = TemplateEngine(profile, video.title, video.credit)
     use_llm = llm_mod.llm_enabled(cfg)
     platforms = req.platforms or list(ALL_PLATFORMS)
     clips: list[ClipRecord] = []
@@ -223,6 +231,7 @@ def run_clip_video(req: ClipRequest, cfg: Config, progress: ProgressFn | None = 
     out = ClipVideoResult(
         video_title=video.title,
         source=video.source_url or video.path,
+        credit=video.credit,
         output_dir=str(work_dir),
         clips_json=str(work_dir / "clips.json"),
         clips_csv=str(work_dir / "clips.csv"),
@@ -273,7 +282,7 @@ def run_generate_metadata(clip_path: str, platform: Platform, niche: str | None,
         transcript_text=clip.transcript_text,
         hook_pattern=clip.hook_pattern,
     )
-    engine = TemplateEngine(profile)
+    engine = TemplateEngine(profile, result.video_title, result.credit)
     hook, draft = engine.bundle(cand, clip.index, [platform])
     if llm_mod.llm_enabled(cfg):
         hook, draft, _v = llm_mod.refine_with_llm(cand, result.video_title, profile, hook, draft, [platform], cfg)
@@ -422,11 +431,10 @@ def run_render_edit(
     existing = read_result(work_dir / "clips.json") if (work_dir / "clips.json").exists() else None
     index = (max((c.index for c in existing.clips), default=0) + 1) if existing else 1
     plats = platforms or list(ALL_PLATFORMS)
-    engine = TemplateEngine(profile)
-    draft_hook, meta = engine.bundle(cand, index, plats)
-    hook_text = hook.strip() if hook else draft_hook
-    if hook:
-        meta = {p: m.model_copy(update={"hook": hook_text}) for p, m in meta.items()}
+    engine = TemplateEngine(profile, video.title, video.credit)
+    # A hand-written hook is the clip's premise: it leads the descriptions too, not just the card.
+    draft_hook, meta = engine.bundle(cand, index, plats, hook=hook.strip() if hook else None)
+    hook_text = draft_hook
     if llm_mod.llm_enabled(cfg) and not hook:
         hook_text, meta, _v = llm_mod.refine_with_llm(cand, video.title, profile, draft_hook, meta, plats, cfg)
 
@@ -436,6 +444,7 @@ def run_render_edit(
         existing = ClipVideoResult(
             video_title=video.title,
             source=video.source_url or video.path,
+            credit=video.credit,
             output_dir=str(work_dir),
             clips_json=str(work_dir / "clips.json"),
             clips_csv=str(work_dir / "clips.csv"),

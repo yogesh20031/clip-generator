@@ -18,6 +18,7 @@ whisper:
   language: null          # null = detect
   vad_filter: true
   beam_size: 5
+  min_word_prob: 0.4      # sentences below this mean confidence are whisper hallucinations; dropped
 
 analysis:
   rate_hz: 4              # grid for energy/motion curves
@@ -53,6 +54,7 @@ clip:
   max_pause_s: 0.5       # pauses longer than this inside kept speech are cut out
   story_min_s: 20        # shorter stories merge into a neighbour
   cold_open_s: 0         # >0 = flash this many seconds of the payoff first, then rewind (A/B test it)
+  min_speech_wpm: 20     # fewer spoken words/min = no commentary: cut continuous action windows instead
   max_context_splice_s: 8  # an earlier line that introduces someone is spliced in only if this short
 
 captions:

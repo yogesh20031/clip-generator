@@ -46,6 +46,8 @@ class WhisperConfig(BaseModel):
     language: str | None = None
     vad_filter: bool = True
     beam_size: int = 5
+    # Sentences whose mean word probability is below this are treated as hallucinated and dropped.
+    min_word_prob: float = 0.4
 
 
 class AnalysisConfig(BaseModel):
@@ -88,6 +90,9 @@ class ClipConfig(BaseModel):
     story_min_s: float = 20.0
     # >0 puts this many seconds of the payoff in front of the clip (cold open), then rewinds to the setup.
     cold_open_s: float = 0.0
+    # Below this many spoken words per minute the video counts as uncommentated (pure gameplay):
+    # clips are then continuous action windows, not speech-driven story edits.
+    min_speech_wpm: float = 20.0
     # Earlier sentences that introduce a name are spliced in only if they are at most this long.
     max_context_splice_s: float = 8.0
 
@@ -193,6 +198,14 @@ class HookTemplate(BaseModel):
     text: str
 
 
+class SourceVariant(BaseModel):
+    """When the source title matches `match` (regex, case-insensitive), swap words in every hook,
+    title, description and hashtag. Lets one niche profile serve related games or series."""
+
+    match: str
+    replace: dict[str, str]
+
+
 class LengthPrior(BaseModel):
     mean_s: float = 30.0
     std_s: float = 12.0
@@ -215,6 +228,7 @@ class Profile(BaseModel):
     story_cues: list[str] = Field(default_factory=list)
     stakes_words: list[str] = Field(default_factory=list)
     payoff_words: list[str] = Field(default_factory=list)
+    source_variants: list[SourceVariant] = Field(default_factory=list)
 
     @field_validator("hashtags", mode="before")
     @classmethod
