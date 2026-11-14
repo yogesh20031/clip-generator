@@ -231,6 +231,30 @@ are the easiest way) and keep `whisper.device: auto`; the server picks `large-v3
 viral-clipper only makes the clips. Posting is a separate local tool, `video-uploader`, which reads
 `clips.json`, keeps your logins in its own Chrome profile and never publishes until you say "share".
 
+## Edit plans: from a link to scheduled posts
+
+The judgement calls (where each story starts and lands, the hook, the captions) are made by reading
+the transcript; everything after that is one command.
+
+1. `viral-clipper stories <url> --niche mrbeast --all` lists every sentence with an id and a role.
+2. Write a plan. `ids` and `segs` can be mixed; `fixes` corrects names Whisper mishears, in the
+   captions too; `cover_at` forces a cover frame, otherwise the picker chooses a sharp face (or the
+   hook card when a face is on it):
+
+   ```json
+   {"source": "https://www.youtube.com/watch?v=…", "niche": "mrbeast",
+    "output_dir": "~/Documents/Desktop/viral-clipper-stories", "fixes": {"Carl": "Karl"},
+    "clips": [{"ids": [4, 5, 6], "segs": ["2:06-2:13"], "hook": "We flew on a $1 plane ticket",
+               "instagram_caption": "…", "youtube_title": "… #Shorts", "youtube_description": "…"}]}
+   ```
+
+3. `viral-clipper render-plan plan.json --captions-out captions.json` renders each clip, refuses any
+   that opens on "And…"/"But…", stops mid-sentence or runs past 84 s, and writes the captions file.
+4. In video-uploader, `uploader pipeline plan.json --review` does step 3 and stops so you can look;
+   `uploader pipeline plan.json --start "2026-11-20 10:00" --every 60 --share` renders and schedules
+   each clip on Instagram, YouTube and TikTok as soon as it's ready (TikTok rounds to its 5-minute
+   marks) and prints a report.
+
 ## Tests
 
 ```bash

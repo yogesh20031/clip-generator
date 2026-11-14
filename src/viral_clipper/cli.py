@@ -158,6 +158,26 @@ def cmd_edit(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_render_plan(args: argparse.Namespace) -> int:
+    from viral_clipper.plan import EditPlan, render_plan
+
+    plan = EditPlan.model_validate_json(open(args.plan, encoding="utf-8").read())
+    entries = []
+    for entry in render_plan(plan, get_config()):
+        entries.append(entry)
+        status = "[red]FAILED CHECK[/] " + entry["error"] if "error" in entry else "[green]ok[/]"
+        console.print(f"clip {entry['plan_index']}: {entry['file']} {entry['duration']}s  {status}")
+        for w in entry["warnings"]:
+            console.print(f"  [yellow]warning:[/] {w}")
+        # One machine-readable line per finished clip, so a poster can start before the rest render.
+        print("READY " + json.dumps(entry, ensure_ascii=False), flush=True)
+    if args.captions_out and entries:
+        folder = entries[0]["folder"]
+        with open(args.captions_out, "w", encoding="utf-8") as fh:
+            json.dump({"folder": folder, "clips": entries}, fh, ensure_ascii=False, indent=1)
+    return 0 if all("error" not in e for e in entries) else 1
+
+
 def cmd_list(args: argparse.Namespace) -> int:
     cfg = get_config()
     root = pipeline._with_output_dir(cfg, args.output_dir).output_root
@@ -229,6 +249,11 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--platforms", nargs="*", choices=[pl.value for pl in ALL_PLATFORMS])
     p.add_argument("--output-dir")
     p.set_defaults(func=cmd_edit)
+
+    p = sub.add_parser("render-plan", help="render every clip in an edit plan, check it and pick its cover")
+    p.add_argument("plan", help="plan JSON: source, niche, fixes, clips [{ids|segs, hook, captions}]")
+    p.add_argument("--captions-out", help="write the video-uploader captions file here")
+    p.set_defaults(func=cmd_render_plan)
 
     p = sub.add_parser("list", help="show saved clips")
     p.add_argument("--output-dir")
